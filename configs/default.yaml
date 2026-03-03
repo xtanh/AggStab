@@ -1,0 +1,30 @@
+data_dir: /home/xy_th/Project_protein_aggregation/data/rocklin
+
+
+
+train:
+  save_dir: results/
+  lr: 1e-4  
+  batch_size: 32
+  num_workers: 4
+  # weight_decay: 1e-3
+  lr_factor: 0.5
+  lr_patience: 5
+  min_lr: 1e-6
+  patience: 10
+  epochs: 100
+
+  monitor_metric: val_spearman # tune learning-rate based on this metric
+  use_scheduler: true
+  scheduler:
+    name: ReduceLROnPlateau
+    mode: max
+    factor: 0.5
+    patience: 3
+    min_lr: 1e-7
+
+hardware:
+  accelerator: gpu
+  devices: [3]
+  precision: 32
+ 
