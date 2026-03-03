@@ -97,7 +97,7 @@ class LightningProAggModel(pl.LightningModule):
                 optimizer,
                 mode=sch_cfg.get("mode", "max"),
                 factor=sch_cfg.get("factor", 0.5),
-                patience=sch_cfg.get("patience", 5),
+                patience=sch_cfg.get("lr_patience", 5),
                 min_lr=sch_cfg.get("min_lr", 1e-7),
             )
             return {

@@ -3,6 +3,8 @@ import sys
 import argparse
 import pytorch_lightning as pl
 from omegaconf import OmegaConf
+from datetime import datetime
+
 FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJ_DIR = FILE_DIR[:FILE_DIR.index('src')]
 sys.path.append(PROJ_DIR)
@@ -30,7 +32,7 @@ def main():
     
     checkpoint_callback = ModelCheckpoint(save_top_k=1, monitor='val_spearman', mode='max', save_last=False, filename='best_{epoch:02d}_{val_spearman:.4f}')
     
-    early_stop_callback = EarlyStopping(monitor='val_spearman', patience=cfg.train.patience)
+    early_stop_callback = EarlyStopping(monitor='val_spearman', patience=cfg.train.patience, mode='max')
     
     trainer = pl.Trainer(max_epochs=cfg.train.epochs,
                          accelerator=cfg.hardware.accelerator,

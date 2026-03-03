@@ -22,7 +22,7 @@ class ProteinDataset(torch.utils.data.Dataset):
             # 'log2_fold_change_50_clip': row['log2_fold_change_50_clip'],
             # 'log2_fold_change_75_clip': row['log2_fold_change_75_clip'],
             # 'log2_fold_change_4_clip': row['log2_fold_change_4_clip'],
-            'score': row['log2_fold_change_50_clip'],
+            'score': row['log2_fold_change_75_clip'],
         }
         
 
