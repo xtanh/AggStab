@@ -15,6 +15,7 @@ from src.models.ProAgg import ProAgg
 class LightningProAggModel(pl.LightningModule):
     def __init__(self, cfg):
         super().__init__()
+        self.save_hyperparameters({"cfg": dict(cfg)})
         self.cfg = cfg
         self.model = ProAgg(self.cfg)
         self.criterion = nn.MSELoss()
@@ -89,7 +90,29 @@ class LightningProAggModel(pl.LightningModule):
         self.test_metrics["spearman"].reset()
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.train.lr)
+        use_lora = getattr(self.model, "use_lora", False)
+
+        if use_lora:
+            lora_params = []
+            head_params = []
+            for name, param in self.model.named_parameters():
+                if not param.requires_grad:
+                    continue
+                if "lora_" in name:
+                    lora_params.append(param)
+                else:
+                    head_params.append(param)
+
+            lora_lr = self.cfg.train.get("lora_lr", 5e-5)
+            head_lr = self.cfg.train.get("lr", 1e-4)
+            weight_decay = self.cfg.train.get("weight_decay", 0.01)
+
+            optimizer = torch.optim.AdamW([
+                {"params": lora_params, "lr": lora_lr, "weight_decay": weight_decay},
+                {"params": head_params, "lr": head_lr, "weight_decay": 0.0},
+            ])
+        else:
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.train.lr)
 
         if self.cfg.train.get("use_scheduler", False):
             sch_cfg = self.cfg.train.scheduler

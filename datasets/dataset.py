@@ -16,7 +16,7 @@ class ProteinDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         row = self.df.iloc[idx]
         return {
-            'protein_sequence': row['protein_sequence'],
+            'sa_sequence': row['sa_sequence_foldseek'],
             'score': row['log2_fold_change_75_clip'],
         }
 

@@ -1,23 +1,19 @@
 data_dir: /home/xy_th/Project_protein_aggregation/data/rocklin
 
-model:
-  saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
-  lora:
-    enabled: true
-    r: 8
-    alpha: 16
-    dropout: 0.1
-    target_modules: ["query", "key", "value"]
+model_version: v2
+model_v2:
+  hidden_dim: 512
+  n_heads: 8
+  n_layers: 2
+  dropout: 0.25
 
 train:
   save_dir: results/
-  lr: 1e-4
-  lora_lr: 5e-5
-  weight_decay: 0.05
-  batch_size: 32
+  lr: 3e-5
+  batch_size: 64
   num_workers: 4
-  patience: 5
-  epochs: 30
+  patience: 15
+  epochs: 100
 
   monitor_metric: val_spearman
   use_scheduler: true
@@ -25,11 +21,10 @@ train:
     name: ReduceLROnPlateau
     mode: max
     factor: 0.5
-    patience: 3
+    patience: 5
     min_lr: 1e-7
 
 hardware:
   accelerator: gpu
   devices: [3]
-  precision: 16
-
+  precision: 32
