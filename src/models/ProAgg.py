@@ -40,10 +40,10 @@ class ProAgg(torch.nn.Module):
         self.proj = nn.Sequential(
             nn.Linear(1280, 640),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.3),
             nn.Linear(640, 128),
             nn.ReLU(),
-            nn.Dropout(0.2),
+            nn.Dropout(0.3),
             nn.Linear(128, 1)
         )
 

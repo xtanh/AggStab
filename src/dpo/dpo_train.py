@@ -2,7 +2,8 @@
 
 Usage:
     python src/dpo/dpo_train.py \
-        --pairs_path data/dpo_pairs.pt \
+        --pairs_path data/dpo/train_pairs.pt \
+        --val_pairs_path data/dpo/val_pairs.pt \
         --output_dir results/dpo/ \
         --device cuda:3 \
         --epochs 10 \
@@ -141,17 +142,70 @@ def dpo_loss(
 # Training loop
 # =====================================================================
 
+@torch.no_grad()
+def evaluate_dpo(model_theta, model_ref, dataset, beta, device):
+    """Evaluate DPO loss and accuracy on a dataset."""
+    model_theta.eval()
+    total_loss = 0.0
+    total_acc = 0.0
+    total_margin = 0.0
+    n = 0
+
+    for idx in range(len(dataset)):
+        item = dataset[idx]
+        feat = dataset._get_feat(item["pdb_path"])
+        L = feat["X"].shape[1]
+
+        S_w = seq_to_indices(item["seq_winner"], L, device).unsqueeze(0)
+        S_l = seq_to_indices(item["seq_loser"], L, device).unsqueeze(0)
+
+        loss, metrics = dpo_loss(
+            model_theta, model_ref, feat, S_w, S_l,
+            beta=beta, device=device,
+        )
+
+        total_loss += loss.item()
+        total_acc += metrics["accuracy"]
+        total_margin += metrics["reward_margin"]
+        n += 1
+
+    model_theta.train()
+    return {
+        "loss": total_loss / max(n, 1),
+        "accuracy": total_acc / max(n, 1),
+        "reward_margin": total_margin / max(n, 1),
+    }
+
+
+def _save_checkpoint(model, epoch, args, path):
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "num_edges": 48,
+        "noise_level": 0.0,
+        "epoch": epoch,
+        "args": vars(args),
+    }, path)
+
+
 def train_dpo(args):
     device = args.device
 
-    print("Loading DPO pairs...", flush=True)
+    print("Loading DPO training pairs...", flush=True)
     data = torch.load(args.pairs_path, map_location="cpu")
     pairs = data["pairs"]
-    print(f"  {len(pairs)} pairs loaded", flush=True)
+    print(f"  {len(pairs)} training pairs loaded", flush=True)
 
     if args.max_pairs > 0:
         pairs = pairs[: args.max_pairs]
         print(f"  Using first {len(pairs)} pairs", flush=True)
+
+    val_dataset = None
+    if args.val_pairs_path:
+        print("Loading DPO validation pairs...", flush=True)
+        val_data = torch.load(args.val_pairs_path, map_location="cpu")
+        val_pairs = val_data["pairs"]
+        val_dataset = DPOPairDataset(val_pairs, device=device)
+        print(f"  {len(val_pairs)} validation pairs loaded", flush=True)
 
     print("Loading ProteinMPNN (policy)...", flush=True)
     model_theta = load_mpnn_model(
@@ -174,8 +228,14 @@ def train_dpo(args):
     os.makedirs(args.output_dir, exist_ok=True)
 
     history = []
+    best_val_loss = float("inf")
+    best_val_acc = 0.0
+    patience_counter = 0
+
+    accum_steps = args.batch_size
 
     for epoch in range(args.epochs):
+        model_theta.train()
         indices = list(range(len(dataset)))
         np.random.shuffle(indices)
 
@@ -183,6 +243,8 @@ def train_dpo(args):
         epoch_acc = 0.0
         epoch_margin = 0.0
         n_steps = 0
+
+        optimizer.zero_grad()
 
         for step, idx in enumerate(indices):
             item = dataset[idx]
@@ -198,18 +260,18 @@ def train_dpo(args):
                 beta=args.beta, device=device,
             )
 
-            optimizer.zero_grad()
-            loss.backward()
-
-            if args.grad_clip > 0:
-                nn.utils.clip_grad_norm_(model_theta.parameters(), args.grad_clip)
-
-            optimizer.step()
+            (loss / accum_steps).backward()
 
             epoch_loss += loss.item()
             epoch_acc += metrics["accuracy"]
             epoch_margin += metrics["reward_margin"]
             n_steps += 1
+
+            if (step + 1) % accum_steps == 0 or (step + 1) == len(indices):
+                if args.grad_clip > 0:
+                    nn.utils.clip_grad_norm_(model_theta.parameters(), args.grad_clip)
+                optimizer.step()
+                optimizer.zero_grad()
 
             if (step + 1) % args.log_every == 0:
                 print(
@@ -225,28 +287,64 @@ def train_dpo(args):
 
         record = {
             "epoch": epoch + 1,
-            "loss": avg_loss,
-            "accuracy": avg_acc,
-            "reward_margin": avg_margin,
+            "train_loss": avg_loss,
+            "train_accuracy": avg_acc,
+            "train_reward_margin": avg_margin,
         }
-        history.append(record)
 
         print(
             f"Epoch {epoch+1}/{args.epochs} | "
-            f"loss={avg_loss:.4f} acc={avg_acc:.3f} margin={avg_margin:.4f}",
+            f"train_loss={avg_loss:.4f} train_acc={avg_acc:.3f} "
+            f"train_margin={avg_margin:.4f}",
             flush=True,
         )
 
+        # --- Validation ---
+        if val_dataset is not None:
+            val_metrics = evaluate_dpo(
+                model_theta, model_ref, val_dataset,
+                beta=args.beta, device=device,
+            )
+            record["val_loss"] = val_metrics["loss"]
+            record["val_accuracy"] = val_metrics["accuracy"]
+            record["val_reward_margin"] = val_metrics["reward_margin"]
+
+            print(
+                f"           | "
+                f"val_loss={val_metrics['loss']:.4f} val_acc={val_metrics['accuracy']:.3f} "
+                f"val_margin={val_metrics['reward_margin']:.4f}",
+                flush=True,
+            )
+
+            improved = val_metrics["loss"] < best_val_loss
+            if improved:
+                best_val_loss = val_metrics["loss"]
+                best_val_acc = val_metrics["accuracy"]
+                patience_counter = 0
+                best_path = os.path.join(args.output_dir, "mpnn_dpo_best.pt")
+                _save_checkpoint(model_theta, epoch + 1, args, best_path)
+                print(f"  -> New best model saved (val_loss={best_val_loss:.4f}, "
+                      f"val_acc={best_val_acc:.3f})")
+            else:
+                patience_counter += 1
+                print(f"  -> No improvement ({patience_counter}/{args.patience})")
+
+            if args.patience > 0 and patience_counter >= args.patience:
+                print(f"\nEarly stopping at epoch {epoch+1} "
+                      f"(best val_loss={best_val_loss:.4f}, val_acc={best_val_acc:.3f})")
+                history.append(record)
+                break
+
+        history.append(record)
+
         if (epoch + 1) % args.save_every == 0 or (epoch + 1) == args.epochs:
             ckpt_path = os.path.join(args.output_dir, f"mpnn_dpo_epoch{epoch+1}.pt")
-            torch.save({
-                "model_state_dict": model_theta.state_dict(),
-                "num_edges": 48,
-                "noise_level": 0.0,
-                "epoch": epoch + 1,
-                "args": vars(args),
-            }, ckpt_path)
+            _save_checkpoint(model_theta, epoch + 1, args, ckpt_path)
             print(f"  Saved checkpoint: {ckpt_path}")
+
+    if val_dataset is not None:
+        print(f"\nBest model: val_loss={best_val_loss:.4f}, val_acc={best_val_acc:.3f}")
+        print(f"Best checkpoint: {os.path.join(args.output_dir, 'mpnn_dpo_best.pt')}")
 
     history_path = os.path.join(args.output_dir, "training_history.json")
     with open(history_path, "w") as f:
@@ -258,7 +356,11 @@ def train_dpo(args):
 
 def main():
     parser = argparse.ArgumentParser(description="DPO fine-tuning of ProteinMPNN")
-    parser.add_argument("--pairs_path", type=str, required=True)
+    parser.add_argument("--pairs_path", type=str, required=True,
+                        help="Path to training preference pairs (.pt)")
+    parser.add_argument("--val_pairs_path", type=str, default=None,
+                        help="Path to validation preference pairs (.pt). "
+                             "If provided, enables best-checkpoint saving and early stopping.")
     parser.add_argument("--mpnn_ckpt", type=str, default=None,
                         help="ProteinMPNN checkpoint (default: v_48_020)")
     parser.add_argument("--output_dir", type=str, default="results/dpo/")
@@ -267,8 +369,12 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--beta", type=float, default=0.1,
                         help="DPO temperature parameter")
+    parser.add_argument("--batch_size", type=int, default=32,
+                        help="Effective batch size via gradient accumulation")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--max_pairs", type=int, default=-1)
+    parser.add_argument("--patience", type=int, default=3,
+                        help="Early stopping patience (0 to disable)")
     parser.add_argument("--log_every", type=int, default=50)
     parser.add_argument("--save_every", type=int, default=5)
     args = parser.parse_args()

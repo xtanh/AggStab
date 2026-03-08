@@ -1,12 +1,15 @@
-"""Stage 2 & 3a: Sample sequences with ProteinMPNN, score with ProAgg, build DPO pairs.
+"""Sample sequences with ProteinMPNN, score with ProAgg, build DPO preference pairs.
+
+Uses rank-aligned pairing (ProtAlign, ICLR 2026): the i-th best sequence is
+paired with the (N/2 + i)-th best, and pairs with score gap <= delta are filtered.
 
 Usage:
     python src/dpo/sample_and_score.py \
-        --pdb_dir  inputs/pdbs \
+        --pdb_dir  data/dpo/representative_pdbs/train \
         --proagg_ckpt  results/lightning_logs/version_X/checkpoints/best.ckpt \
-        --output  data/dpo_pairs.pt \
-        --num_samples 64 \
-        --temperature 0.1 \
+        --output  data/dpo/train_pairs.pt \
+        --num_samples 12 \
+        --temperature 1.0 \
         --device cuda:3
 """
 
@@ -15,8 +18,6 @@ import sys
 import glob
 import json
 import argparse
-import itertools
-
 import torch
 import numpy as np
 
@@ -24,73 +25,91 @@ FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJ_DIR = FILE_DIR[:FILE_DIR.index("src")]
 sys.path.insert(0, PROJ_DIR)
 
+import pandas as pd
+from transformers import EsmTokenizer
+
 from src.mpnn.mpnn_wrapper import (
     load_mpnn_model,
     featurize_pdb,
     sample_sequences,
 )
 from src.ln.lightning_model import LightningProAggModel
-from src.ln.lightning_data import alphabet as esm_alphabet
+from src.ln.lightning_data import _sa_seq_to_spaced
 
 
-def tokenize_for_proagg(seq, device="cpu"):
-    """Tokenize a protein sequence string for ESM-2 / ProAgg."""
-    if len(seq) > 1022:
-        seq = seq[:1022]
-    tokens = torch.empty(len(seq) + 2, dtype=torch.int64)
-    tokens[0] = esm_alphabet.cls_idx
-    tokens[1:len(seq) + 1] = torch.tensor(
-        esm_alphabet.encode(text=seq), dtype=torch.int64
-    )
-    tokens[len(seq) + 1] = esm_alphabet.eos_idx
-    return tokens.unsqueeze(0).to(device)
+def build_struct_token_lookup(data_csv):
+    """Build a mapping from protein name -> structural tokens (from SA sequence)."""
+    df = pd.read_csv(data_csv)
+    lookup = {}
+    for _, row in df.iterrows():
+        sa = row["sa_sequence_foldseek"]
+        struct_tokens = "".join([sa[i + 1] for i in range(0, len(sa), 2)])
+        lookup[row["name"]] = struct_tokens
+    return lookup
+
+
+def aa_seq_to_sa_seq(aa_seq, struct_tokens):
+    """Combine a new AA sequence with original structural tokens to form SA sequence."""
+    L = min(len(aa_seq), len(struct_tokens))
+    return "".join([aa_seq[i] + struct_tokens[i] for i in range(L)])
 
 
 @torch.no_grad()
-def score_sequences_with_proagg(proagg_model, sequences, device="cpu", batch_size=32):
-    """Score a list of sequences with ProAgg, return tensor of scores."""
+def score_sequences_with_proagg(
+    proagg_model, sequences, struct_tokens, tokenizer, device="cpu", batch_size=32,
+):
+    """Score a list of AA sequences with SaProt-based ProAgg.
+
+    Converts each AA sequence to SA sequence using the backbone's structural
+    tokens, then tokenizes with SaProt tokenizer.
+    """
     proagg_model.eval()
     all_scores = []
 
     for i in range(0, len(sequences), batch_size):
         batch_seqs = sequences[i : i + batch_size]
-        token_list = [tokenize_for_proagg(s, device="cpu") for s in batch_seqs]
+        sa_seqs = [aa_seq_to_sa_seq(s, struct_tokens) for s in batch_seqs]
+        spaced = [_sa_seq_to_spaced(sa) for sa in sa_seqs]
+        encoded = tokenizer.batch_encode_plus(spaced, return_tensors="pt", padding=True)
 
-        max_len = max(t.shape[1] for t in token_list)
-        padded = torch.full(
-            (len(token_list), max_len), esm_alphabet.padding_idx, dtype=torch.int64
-        )
-        for j, t in enumerate(token_list):
-            padded[j, : t.shape[1]] = t[0]
-
-        batch_dict = {"seq_tokens": padded.to(device)}
+        batch_dict = {
+            "input_ids": encoded["input_ids"].to(device),
+            "attention_mask": encoded["attention_mask"].to(device),
+        }
         out = proagg_model(batch_dict)
         all_scores.append(out["score"].cpu().flatten())
 
     return torch.cat(all_scores, dim=0)
 
 
-def build_preference_pairs(sequences, scores, top_ratio=0.25):
-    """Build (winner, loser) pairs from sequences + scores.
+def build_preference_pairs(sequences, scores, score_gap_delta=0.1):
+    """Build (winner, loser) pairs using rank-aligned pairing.
 
-    Higher score = more soluble / less aggregation-prone = winner.
+    Rank all N sequences by score (descending), then pair the i-th ranked
+    sequence with the (N/2 + i)-th ranked sequence (i < N/2).
+    Only keep pairs where score_winner - score_loser > delta.
+
+    Reference: ProtAlign (Liu et al., ICLR 2026), Section 4.4.
     """
     n = len(sequences)
-    n_top = max(1, int(n * top_ratio))
-    n_bot = n_top
+    if n < 2:
+        return []
 
-    sorted_idx = torch.argsort(scores, descending=True)
-    top_idx = sorted_idx[:n_top].tolist()
-    bot_idx = sorted_idx[-n_bot:].tolist()
+    sorted_idx = torch.argsort(scores, descending=True).tolist()
+    half = n // 2
 
     pairs = []
-    for w_i, l_i in itertools.product(top_idx, bot_idx):
-        if scores[w_i] > scores[l_i]:
+    for i in range(half):
+        w_i = sorted_idx[i]
+        l_i = sorted_idx[half + i]
+        gap = scores[w_i].item() - scores[l_i].item()
+        if gap > score_gap_delta:
             pairs.append({
                 "seq_winner": sequences[w_i],
                 "seq_loser": sequences[l_i],
                 "score_winner": scores[w_i].item(),
                 "score_loser": scores[l_i].item(),
+                "score_gap": gap,
             })
     return pairs
 
@@ -106,15 +125,19 @@ def main():
     parser.add_argument("--mpnn_ckpt", type=str, default=None,
                         help="Path to ProteinMPNN checkpoint (default: v_48_020)")
     parser.add_argument("--output", type=str, default="data/dpo_pairs.pt")
-    parser.add_argument("--num_samples", type=int, default=64)
-    parser.add_argument("--temperature", type=float, default=0.1)
-    parser.add_argument("--top_ratio", type=float, default=0.25)
+    parser.add_argument("--num_samples", type=int, default=12,
+                        help="Number of sequences to sample per backbone")
+    parser.add_argument("--temperature", type=float, default=1.0,
+                        help="Rollout temperature (higher = more diverse)")
+    parser.add_argument("--score_gap_delta", type=float, default=0.0,
+                        help="Min score gap to keep a preference pair (filter noise)")
     parser.add_argument("--device", type=str, default="cuda:3")
     parser.add_argument("--proagg_batch_size", type=int, default=16)
+    parser.add_argument("--data_csv", type=str,
+                        default="data/rocklin/rawdata/data.csv",
+                        help="Path to raw data CSV (for structural token lookup)")
     parser.add_argument("--max_pdbs", type=int, default=-1,
                         help="Max number of PDBs to process (-1 for all)")
-    parser.add_argument("--max_pairs_per_pdb", type=int, default=256,
-                        help="Cap preference pairs per backbone to avoid imbalance")
     args = parser.parse_args()
 
     device = args.device
@@ -134,6 +157,13 @@ def main():
     proagg_model = proagg_lightning.model.to(device)
     proagg_model.eval()
 
+    print("Loading SaProt tokenizer...")
+    tokenizer = EsmTokenizer.from_pretrained(cfg.model.saprot_path)
+
+    print("Building structural token lookup...")
+    struct_lookup = build_struct_token_lookup(args.data_csv)
+    print(f"  {len(struct_lookup)} proteins in lookup")
+
     # --- Process each PDB ---
     pdb_files = sorted(glob.glob(os.path.join(args.pdb_dir, "*.pdb")))
     if not pdb_files:
@@ -149,10 +179,19 @@ def main():
     all_pairs = []
     all_baseline_results = []
 
+    skipped = 0
     for pdb_path in pdb_files:
-        pdb_name = os.path.basename(pdb_path).replace(".pdb", "")
+        pdb_file = os.path.basename(pdb_path)
+        protein_name = pdb_file.replace("_ranked_0.pdb", "")
         print(f"\n{'='*60}")
-        print(f"Processing: {pdb_name}")
+        print(f"Processing: {protein_name}")
+
+        if protein_name not in struct_lookup:
+            print(f"  WARNING: no structural tokens found, skipping.")
+            skipped += 1
+            continue
+
+        struct_tokens = struct_lookup[protein_name]
 
         feat = featurize_pdb(pdb_path, device=device)
 
@@ -168,7 +207,7 @@ def main():
 
         print(f"  Scoring with ProAgg...")
         scores = score_sequences_with_proagg(
-            proagg_model, unique_seqs,
+            proagg_model, unique_seqs, struct_tokens, tokenizer,
             device=device, batch_size=args.proagg_batch_size,
         )
 
@@ -178,24 +217,25 @@ def main():
               f"mean={scores.mean():.3f}")
 
         all_baseline_results.append({
-            "pdb_name": pdb_name,
+            "pdb_name": protein_name,
             "sequences": unique_seqs,
             "scores": scores.tolist(),
             "best_seq": unique_seqs[best_idx],
             "best_score": scores[best_idx].item(),
         })
 
-        pairs = build_preference_pairs(unique_seqs, scores, top_ratio=args.top_ratio)
-        if args.max_pairs_per_pdb > 0 and len(pairs) > args.max_pairs_per_pdb:
-            np.random.shuffle(pairs)
-            pairs = pairs[:args.max_pairs_per_pdb]
+        pairs = build_preference_pairs(
+            unique_seqs, scores, score_gap_delta=args.score_gap_delta,
+        )
         for p in pairs:
             p["pdb_path"] = pdb_path
-            p["pdb_name"] = pdb_name
+            p["pdb_name"] = protein_name
         all_pairs.extend(pairs)
         print(f"  Built {len(pairs)} preference pairs")
 
     print(f"\n{'='*60}")
+    if skipped > 0:
+        print(f"Skipped {skipped} PDBs (no structural tokens)")
     print(f"Total preference pairs: {len(all_pairs)}")
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)

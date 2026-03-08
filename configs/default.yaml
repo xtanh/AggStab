@@ -4,9 +4,9 @@ model:
   saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
   lora:
     enabled: true
-    r: 8
-    alpha: 16
-    dropout: 0.1
+    r: 4
+    alpha: 8
+    dropout: 0.2
     target_modules: ["query", "key", "value"]
 
 train:

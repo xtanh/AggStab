@@ -34,7 +34,12 @@ from src.mpnn.mpnn_wrapper import (
     sample_sequences,
     compute_log_probs,
 )
-from src.dpo.sample_and_score import score_sequences_with_proagg
+from transformers import EsmTokenizer
+
+from src.dpo.sample_and_score import (
+    score_sequences_with_proagg,
+    build_struct_token_lookup,
+)
 from src.ln.lightning_model import LightningProAggModel
 from src.config.utils import load_yaml_config
 
@@ -56,7 +61,7 @@ def sequence_diversity(sequences):
 
 
 def evaluate_model(
-    mpnn_model, proagg_model, pdb_files,
+    mpnn_model, proagg_model, pdb_files, struct_lookup, tokenizer,
     num_samples=64, temperature=0.1,
     proagg_batch_size=16, device="cuda",
 ):
@@ -64,9 +69,15 @@ def evaluate_model(
     results = []
 
     for pi, pdb_path in enumerate(pdb_files):
-        pdb_name = os.path.basename(pdb_path).replace(".pdb", "")
-        print(f"  [{pi+1}/{len(pdb_files)}] {pdb_name}", flush=True)
+        pdb_file = os.path.basename(pdb_path)
+        protein_name = pdb_file.replace("_ranked_0.pdb", "")
+        print(f"  [{pi+1}/{len(pdb_files)}] {protein_name}", flush=True)
 
+        if protein_name not in struct_lookup:
+            print(f"    WARNING: no structural tokens, skipping.")
+            continue
+
+        struct_tokens = struct_lookup[protein_name]
         feat = featurize_pdb(pdb_path, device=device)
 
         sequences = sample_sequences(
@@ -78,7 +89,7 @@ def evaluate_model(
         unique_seqs = list(set(sequences))
 
         proagg_scores = score_sequences_with_proagg(
-            proagg_model, unique_seqs,
+            proagg_model, unique_seqs, struct_tokens, tokenizer,
             device=device, batch_size=proagg_batch_size,
         )
 
@@ -89,7 +100,7 @@ def evaluate_model(
         diversity = sequence_diversity(unique_seqs)
 
         results.append({
-            "pdb_name": pdb_name,
+            "pdb_name": protein_name,
             "n_unique": len(unique_seqs),
             "proagg_mean": proagg_scores.mean().item(),
             "proagg_max": proagg_scores.max().item(),
@@ -114,6 +125,9 @@ def main():
     parser.add_argument("--output", type=str, default="results/dpo/eval_results.json")
     parser.add_argument("--num_samples", type=int, default=64)
     parser.add_argument("--temperature", type=float, default=0.1)
+    parser.add_argument("--data_csv", type=str,
+                        default="data/rocklin/rawdata/data.csv",
+                        help="Path to raw data CSV (for structural token lookup)")
     parser.add_argument("--max_pdbs", type=int, default=-1,
                         help="Max PDBs to evaluate (-1 for all)")
     parser.add_argument("--device", type=str, default="cuda:3")
@@ -127,6 +141,9 @@ def main():
     )
     proagg_model = proagg_lightning.model.to(device)
     proagg_model.eval()
+
+    tokenizer = EsmTokenizer.from_pretrained(cfg.model.saprot_path)
+    struct_lookup = build_struct_token_lookup(args.data_csv)
 
     pdb_files = sorted(glob.glob(os.path.join(args.pdb_dir, "*.pdb")))
     if not pdb_files:
@@ -147,7 +164,7 @@ def main():
         checkpoint_path=args.original_mpnn_ckpt, device=device,
     )
     original_results = evaluate_model(
-        original_model, proagg_model, pdb_files,
+        original_model, proagg_model, pdb_files, struct_lookup, tokenizer,
         num_samples=args.num_samples, temperature=args.temperature,
         device=device,
     )
@@ -162,7 +179,7 @@ def main():
         checkpoint_path=args.dpo_mpnn_ckpt, device=device,
     )
     dpo_results = evaluate_model(
-        dpo_model, proagg_model, pdb_files,
+        dpo_model, proagg_model, pdb_files, struct_lookup, tokenizer,
         num_samples=args.num_samples, temperature=args.temperature,
         device=device,
     )
