@@ -58,12 +58,13 @@ def main():
 
     # 保存到权重文件夹
     if trainer.is_global_zero and len(test_results) > 0:
-        save_dir = cfg.train.save_dir
-        results = dict(test_results[0])  # {'test_loss':..., 'test_spearman':...}
+        run_dir = os.path.dirname(checkpoint_callback.best_model_path)  # 与 best checkpoint 同目录
+        results = dict(test_results[0])
         results["_best_checkpoint"] = checkpoint_callback.best_model_path
         results["_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        txt_path = os.path.join(save_dir, "test_results.txt")
+        txt_path = os.path.join(run_dir, "test_results.txt")
+
         with open(txt_path, "w") as f:
             f.write("Test Results (best checkpoint)\n")
             f.write(f"Best checkpoint: {checkpoint_callback.best_model_path}\n")

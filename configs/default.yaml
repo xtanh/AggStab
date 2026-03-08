@@ -11,7 +11,7 @@ train:
   lr_factor: 0.5
   lr_patience: 5
   min_lr: 1e-6
-  patience: 10
+  patience: 10 # early stopping patience
   epochs: 100
 
   monitor_metric: val_spearman # tune learning-rate based on this metric

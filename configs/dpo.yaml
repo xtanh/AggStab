@@ -1,0 +1,37 @@
+# ============================================================
+# DPO fine-tuning configuration for ProteinMPNN + ProAgg
+# ============================================================
+
+# --- Paths ---
+pdb_dir: inputs/pdbs                          # PDB backbones for sampling
+proagg_ckpt: null                             # ProAgg checkpoint (required)
+proagg_config: configs/default.yaml
+mpnn_ckpt: null                               # ProteinMPNN checkpoint (null = default v_48_020)
+pairs_path: data/dpo_pairs.pt                 # output of sample_and_score.py
+
+# --- Sampling (Stage 2) ---
+sampling:
+  num_samples: 64                             # sequences per backbone
+  temperature: 0.1                            # sampling temperature
+  top_ratio: 0.25                             # fraction for winner/loser selection
+  proagg_batch_size: 16
+
+# --- DPO training (Stage 3) ---
+dpo:
+  output_dir: results/dpo/
+  epochs: 10
+  lr: 1e-5
+  beta: 0.1                                   # DPO temperature (higher = more conservative)
+  grad_clip: 1.0
+  max_pairs: -1                               # -1 for all pairs
+  log_every: 50
+  save_every: 5
+
+# --- Evaluation ---
+eval:
+  num_samples: 64
+  temperature: 0.1
+
+# --- Hardware ---
+hardware:
+  device: cuda:3
