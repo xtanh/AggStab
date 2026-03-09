@@ -41,14 +41,15 @@ VAL_PAIRS="data/dpo/val_pairs.pt"
 DPO_OUTPUT="results/dpo"
 
 NUM_SAMPLES=12
-TEMPERATURE=0.5
+TEMPERATURE=0.5          # Used for both training pair generation AND evaluation
 PROAGG_CONFIG="configs/default.yaml"
 
 DPO_EPOCHS=10
 DPO_LR=1e-5
-DPO_BETA=0.1
+DPO_BETA=0.5             # KL penalty; higher = less reward hacking (was 0.1)
 DPO_BATCH_SIZE=32
 DPO_PATIENCE=3
+DPO_SCORE_GAP_DELTA=0.05 # Filter noisy pairs at training time (no re-sampling needed)
 
 for dir in "$PDB_TRAIN" "$PDB_VALID" "$PDB_TEST"; do
     if [ ! -d "$dir" ]; then
@@ -96,7 +97,8 @@ python src/dpo/dpo_train.py \
     --lr "$DPO_LR" \
     --beta "$DPO_BETA" \
     --batch_size "$DPO_BATCH_SIZE" \
-    --patience "$DPO_PATIENCE"
+    --patience "$DPO_PATIENCE" \
+    --score_gap_delta "$DPO_SCORE_GAP_DELTA"
 
 BEST_CKPT="$DPO_OUTPUT/mpnn_dpo_best.pt"
 if [ ! -f "$BEST_CKPT" ]; then
@@ -114,6 +116,7 @@ python src/dpo/evaluate.py \
     --proagg_ckpt "$PROAGG_CKPT" \
     --output "$DPO_OUTPUT/eval_results.json" \
     --num_samples "$NUM_SAMPLES" \
+    --temperature "$TEMPERATURE" \
     --device "$DEVICE"
 
 echo ""

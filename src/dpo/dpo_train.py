@@ -83,10 +83,15 @@ def seq_to_indices(seq, L, device):
 # DPO Loss
 # =====================================================================
 
-def compute_seq_log_prob(model, feat, S, device):
+def compute_seq_log_prob(model, feat, S, device, randn=None):
     """Compute mean log-probability of sequence S under the model.
 
     Returns scalar: mean log p(s_i | context) over designed positions.
+
+    Args:
+        randn: Fixed decoding-order tensor. If None, uses zeros (fixed order).
+               Pass the same randn to policy and reference to eliminate
+               decoding-order noise from the DPO log-ratio.
     """
     X = feat["X"]
     mask = feat["mask"]
@@ -97,7 +102,8 @@ def compute_seq_log_prob(model, feat, S, device):
     if S.dim() == 1:
         S = S.unsqueeze(0)
 
-    randn = torch.randn(chain_M.shape, device=device)
+    if randn is None:
+        randn = torch.zeros(chain_M.shape, device=device)
     log_probs = model(X, S, mask, chain_M, residue_idx, chain_encoding_all, randn)
 
     neg_scores = _scores(S, log_probs, mask * chain_M)
@@ -113,13 +119,21 @@ def dpo_loss(
         (log pi_theta(y_w|x) - log pi_ref(y_w|x))
       - (log pi_theta(y_l|x) - log pi_ref(y_l|x))
     ))
+
+    A single fixed randn (zeros) is shared across all four log-prob calls so
+    that the decoding order is identical for policy and reference.  This
+    eliminates random decoding-order noise from the log-ratio, making the
+    DPO gradient deterministic and meaningful.
     """
-    log_pi_theta_w = compute_seq_log_prob(model_theta, feat, S_w, device)
-    log_pi_theta_l = compute_seq_log_prob(model_theta, feat, S_l, device)
+    chain_M = feat["chain_M"] * feat["chain_M_pos"]
+    randn = torch.zeros(chain_M.shape, device=device)
+
+    log_pi_theta_w = compute_seq_log_prob(model_theta, feat, S_w, device, randn)
+    log_pi_theta_l = compute_seq_log_prob(model_theta, feat, S_l, device, randn)
 
     with torch.no_grad():
-        log_pi_ref_w = compute_seq_log_prob(model_ref, feat, S_w, device)
-        log_pi_ref_l = compute_seq_log_prob(model_ref, feat, S_l, device)
+        log_pi_ref_w = compute_seq_log_prob(model_ref, feat, S_w, device, randn)
+        log_pi_ref_l = compute_seq_log_prob(model_ref, feat, S_l, device, randn)
 
     log_ratio_w = log_pi_theta_w - log_pi_ref_w
     log_ratio_l = log_pi_theta_l - log_pi_ref_l
@@ -194,6 +208,11 @@ def train_dpo(args):
     data = torch.load(args.pairs_path, map_location="cpu")
     pairs = data["pairs"]
     print(f"  {len(pairs)} training pairs loaded", flush=True)
+
+    if args.score_gap_delta > 0.0:
+        n_before = len(pairs)
+        pairs = [p for p in pairs if p.get("score_gap", float("inf")) > args.score_gap_delta]
+        print(f"  score_gap_delta={args.score_gap_delta}: {n_before} -> {len(pairs)} pairs", flush=True)
 
     if args.max_pairs > 0:
         pairs = pairs[: args.max_pairs]
@@ -367,8 +386,12 @@ def main():
     parser.add_argument("--device", type=str, default="cuda:3")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=1e-5)
-    parser.add_argument("--beta", type=float, default=0.1,
-                        help="DPO temperature parameter")
+    parser.add_argument("--beta", type=float, default=0.5,
+                        help="DPO temperature parameter (KL penalty). "
+                             "Higher = stay closer to reference, less reward hacking.")
+    parser.add_argument("--score_gap_delta", type=float, default=0.0,
+                        help="Filter out pairs whose score_gap <= delta. "
+                             "Removes noisy pairs without re-sampling (applied at load time).")
     parser.add_argument("--batch_size", type=int, default=32,
                         help="Effective batch size via gradient accumulation")
     parser.add_argument("--grad_clip", type=float, default=1.0)
