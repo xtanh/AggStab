@@ -113,6 +113,7 @@ python src/dpo/evaluate.py \
     --dpo_mpnn_ckpt "$BEST_CKPT" \
     --proagg_ckpt "$PROAGG_CKPT" \
     --output "$DPO_OUTPUT/eval_results.json" \
+    --num_samples "$NUM_SAMPLES" \
     --device "$DEVICE"
 
 echo ""

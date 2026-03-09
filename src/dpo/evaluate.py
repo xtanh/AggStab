@@ -123,7 +123,7 @@ def main():
     parser.add_argument("--proagg_ckpt", type=str, required=True)
     parser.add_argument("--proagg_config", type=str, default="configs/default.yaml")
     parser.add_argument("--output", type=str, default="results/dpo/eval_results.json")
-    parser.add_argument("--num_samples", type=int, default=64)
+    parser.add_argument("--num_samples", type=int, default=12)
     parser.add_argument("--temperature", type=float, default=0.1)
     parser.add_argument("--data_csv", type=str,
                         default="data/rocklin/rawdata/data.csv",
