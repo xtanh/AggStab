@@ -63,7 +63,7 @@ def sequence_diversity(sequences):
 def evaluate_model(
     mpnn_model, proagg_model, pdb_files, struct_lookup, tokenizer,
     num_samples=64, temperature=0.5,
-    proagg_batch_size=16, device="cuda",
+    proagg_batch_size=8, device="cuda",
 ):
     """Evaluate a ProteinMPNN model on a set of PDB backbones."""
     results = []
@@ -165,10 +165,11 @@ def main():
     original_model = load_mpnn_model(
         checkpoint_path=args.original_mpnn_ckpt, device=device,
     )
-    original_results = evaluate_model(
-        original_model, proagg_model, pdb_files, struct_lookup, tokenizer,
-        num_samples=args.num_samples, temperature=args.temperature,
-        device=device,
+    with torch.no_grad():
+        original_results = evaluate_model(
+            original_model, proagg_model, pdb_files, struct_lookup, tokenizer,
+            num_samples=args.num_samples, temperature=args.temperature,
+            device=device,
     )
     del original_model
     torch.cuda.empty_cache()
@@ -180,11 +181,12 @@ def main():
     dpo_model = load_mpnn_model(
         checkpoint_path=args.dpo_mpnn_ckpt, device=device,
     )
-    dpo_results = evaluate_model(
-        dpo_model, proagg_model, pdb_files, struct_lookup, tokenizer,
-        num_samples=args.num_samples, temperature=args.temperature,
-        device=device,
-    )
+    with torch.no_grad():
+        dpo_results = evaluate_model(
+            dpo_model, proagg_model, pdb_files, struct_lookup, tokenizer,
+            num_samples=args.num_samples, temperature=args.temperature,
+            device=device,
+        )
     del dpo_model
     torch.cuda.empty_cache()
 
