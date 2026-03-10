@@ -1,6 +1,7 @@
 data_dir: /home/xy_th/Project_protein_aggregation/data/rocklin
 
 model:
+  model_name: proagg_mlp_v1
   saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
   lora:
     enabled: true
@@ -32,4 +33,3 @@ hardware:
   accelerator: gpu
   devices: [3]
   precision: 16
-

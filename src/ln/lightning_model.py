@@ -10,14 +10,14 @@ FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJ_DIR = FILE_DIR[:FILE_DIR.index('src')]
 sys.path.append(PROJ_DIR)
 
-from src.models.ProAgg import ProAgg
+from src.models.factory import build_proagg_model
 
 class LightningProAggModel(pl.LightningModule):
     def __init__(self, cfg):
         super().__init__()
         self.save_hyperparameters({"cfg": dict(cfg)})
         self.cfg = cfg
-        self.model = ProAgg(self.cfg)
+        self.model = build_proagg_model(self.cfg)
         self.criterion = nn.MSELoss()
 
         self.train_metrics = nn.ModuleDict({
@@ -134,4 +134,3 @@ class LightningProAggModel(pl.LightningModule):
             }
 
         return optimizer
-

@@ -9,10 +9,13 @@ FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJ_DIR = FILE_DIR[:FILE_DIR.index('src')]
 sys.path.append(PROJ_DIR)
 
+from src.models.factory import register_proagg_model
 
-class ProAgg(torch.nn.Module):
+
+@register_proagg_model("proagg_mlp_v1")
+class ProAggMLPV1(torch.nn.Module):
     def __init__(self, cfg):
-        super(ProAgg, self).__init__()
+        super(ProAggMLPV1, self).__init__()
         self.cfg = cfg
         self.use_lora = False
 
@@ -78,6 +81,9 @@ class ProAgg(torch.nn.Module):
         protein_repr = self.proj(pooled)  # (B, 1)
 
         return {'score': protein_repr}
+
+
+ProAgg = ProAggMLPV1
 
 
 if __name__ == "__main__":
