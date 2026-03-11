@@ -35,6 +35,7 @@ from src.mpnn.mpnn_wrapper import (
 )
 from src.ln.lightning_model import LightningProAggModel
 from src.ln.lightning_data import _sa_seq_to_spaced
+from src.utils.seed import set_global_seed, unique_preserve_order
 
 
 def build_struct_token_lookup(data_csv):
@@ -138,9 +139,12 @@ def main():
                         help="Path to raw data CSV (for structural token lookup)")
     parser.add_argument("--max_pdbs", type=int, default=-1,
                         help="Max number of PDBs to process (-1 for all)")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for subset selection and sampling")
     args = parser.parse_args()
 
     device = args.device
+    set_global_seed(args.seed)
 
     # --- Load models ---
     print("Loading ProteinMPNN...")
@@ -171,7 +175,7 @@ def main():
         return
 
     if args.max_pdbs > 0:
-        np.random.seed(42)
+        np.random.seed(args.seed)
         idx = np.random.choice(len(pdb_files), min(args.max_pdbs, len(pdb_files)), replace=False)
         pdb_files = [pdb_files[i] for i in sorted(idx)]
         print(f"Selected {len(pdb_files)} PDBs (max_pdbs={args.max_pdbs})")
@@ -202,7 +206,7 @@ def main():
             temperature=args.temperature,
             device=device,
         )
-        unique_seqs = list(set(sequences))
+        unique_seqs = unique_preserve_order(sequences)
         print(f"  Got {len(unique_seqs)} unique sequences")
 
         print(f"  Scoring with ProAgg...")

@@ -43,6 +43,8 @@ from src.dpo.sample_and_score import (
 from src.ln.lightning_model import LightningProAggModel
 from src.config.utils import load_yaml_config
 
+from src.utils.seed import set_global_seed, unique_preserve_order
+
 
 def sequence_diversity(sequences):
     """Average pairwise Hamming distance (normalized)."""
@@ -64,6 +66,7 @@ def evaluate_model(
     mpnn_model, proagg_model, pdb_files, struct_lookup, tokenizer,
     num_samples=64, temperature=0.5,
     proagg_batch_size=8, device="cuda",
+    seed=None,
 ):
     """Evaluate a ProteinMPNN model on a set of PDB backbones."""
     results = []
@@ -80,13 +83,18 @@ def evaluate_model(
         struct_tokens = struct_lookup[protein_name]
         feat = featurize_pdb(pdb_path, device=device)
 
+        if seed is not None:
+            # Reset RNG per-backbone so ORIGINAL vs DPO use the same random stream,
+            # improving comparability across runs.
+            set_global_seed(int(seed) + int(pi))
+
         sequences = sample_sequences(
             mpnn_model, feat,
             num_samples=num_samples,
             temperature=temperature,
             device=device,
         )
-        unique_seqs = list(set(sequences))
+        unique_seqs = unique_preserve_order(sequences)
 
         proagg_scores = score_sequences_with_proagg(
             proagg_model, unique_seqs, struct_tokens, tokenizer,
@@ -133,9 +141,12 @@ def main():
     parser.add_argument("--max_pdbs", type=int, default=-1,
                         help="Max PDBs to evaluate (-1 for all)")
     parser.add_argument("--device", type=str, default="cuda:3")
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for subset selection and sampling")
     args = parser.parse_args()
 
     device = args.device
+    set_global_seed(args.seed)
 
     cfg = load_yaml_config(args.proagg_config)
     proagg_lightning = LightningProAggModel.load_from_checkpoint(
@@ -153,7 +164,7 @@ def main():
         return
 
     if args.max_pdbs > 0:
-        np.random.seed(42)
+        np.random.seed(args.seed)
         idx = np.random.choice(len(pdb_files), min(args.max_pdbs, len(pdb_files)), replace=False)
         pdb_files = [pdb_files[i] for i in sorted(idx)]
         print(f"Selected {len(pdb_files)} PDBs for evaluation")
@@ -170,6 +181,7 @@ def main():
             original_model, proagg_model, pdb_files, struct_lookup, tokenizer,
             num_samples=args.num_samples, temperature=args.temperature,
             device=device,
+            seed=args.seed,
     )
     del original_model
     torch.cuda.empty_cache()
@@ -186,6 +198,7 @@ def main():
             dpo_model, proagg_model, pdb_files, struct_lookup, tokenizer,
             num_samples=args.num_samples, temperature=args.temperature,
             device=device,
+            seed=args.seed,
         )
     del dpo_model
     torch.cuda.empty_cache()

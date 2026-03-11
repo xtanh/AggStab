@@ -38,6 +38,8 @@ MPNN_DIR = "/home/xy_th/ProteinMPNN"
 sys.path.insert(0, MPNN_DIR)
 from protein_mpnn_utils import _scores
 
+from src.utils.seed import set_global_seed
+
 
 # =====================================================================
 # Dataset
@@ -203,6 +205,7 @@ def _save_checkpoint(model, epoch, args, path):
 
 def train_dpo(args):
     device = args.device
+    set_global_seed(args.seed)
 
     print("Loading DPO training pairs...", flush=True)
     data = torch.load(args.pairs_path, map_location="cpu")
@@ -400,6 +403,8 @@ def main():
                         help="Early stopping patience (0 to disable)")
     parser.add_argument("--log_every", type=int, default=50)
     parser.add_argument("--save_every", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=42,
+                        help="Random seed for training order / torch RNG")
     args = parser.parse_args()
 
     train_dpo(args)
