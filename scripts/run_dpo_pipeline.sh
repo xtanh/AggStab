@@ -43,6 +43,7 @@ DPO_OUTPUT="results/dpo"
 NUM_SAMPLES=12
 TEMPERATURE=0.5          # Used for both training pair generation AND evaluation
 PROAGG_CONFIG="configs/default.yaml"
+SEED=${SEED:-42}
 
 DPO_EPOCHS=10
 DPO_LR=1e-5
@@ -69,7 +70,8 @@ python src/dpo/sample_and_score.py \
     --output "$TRAIN_PAIRS" \
     --num_samples "$NUM_SAMPLES" \
     --temperature "$TEMPERATURE" \
-    --device "$DEVICE"
+    --device "$DEVICE" \
+    --seed "$SEED"
 
 echo ""
 echo "============================================================"
@@ -82,7 +84,8 @@ python src/dpo/sample_and_score.py \
     --output "$VAL_PAIRS" \
     --num_samples "$NUM_SAMPLES" \
     --temperature "$TEMPERATURE" \
-    --device "$DEVICE"
+    --device "$DEVICE" \
+    --seed "$SEED"
 
 echo ""
 echo "============================================================"
@@ -98,7 +101,8 @@ python src/dpo/dpo_train.py \
     --beta "$DPO_BETA" \
     --batch_size "$DPO_BATCH_SIZE" \
     --patience "$DPO_PATIENCE" \
-    --score_gap_delta "$DPO_SCORE_GAP_DELTA"
+    --score_gap_delta "$DPO_SCORE_GAP_DELTA" \
+    --seed "$SEED"
 
 BEST_CKPT="$DPO_OUTPUT/mpnn_dpo_best.pt"
 if [ ! -f "$BEST_CKPT" ]; then
@@ -117,7 +121,8 @@ python src/dpo/evaluate.py \
     --output "$DPO_OUTPUT/eval_results.json" \
     --num_samples "$NUM_SAMPLES" \
     --temperature "$TEMPERATURE" \
-    --device "$DEVICE"
+    --device "$DEVICE" \
+    --seed "$SEED"
 
 echo ""
 echo "============================================================"

@@ -38,8 +38,9 @@ def main():
                          accelerator=cfg.hardware.accelerator,
                          devices=cfg.hardware.devices,
                          precision=cfg.hardware.precision,
-                         logger=logger, 
+                         logger=logger,
                          log_every_n_steps=10,
+                         gradient_clip_val=cfg.train.get('gradient_clip_val', 0),
                          callbacks=[checkpoint_callback, early_stop_callback])
     
     trainer.fit(model, data_module)

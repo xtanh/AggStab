@@ -50,6 +50,7 @@
 - **原始数据**: `data/rocklin/rawdata/data.csv` (含 SA 序列和 cluster 信息)
 - **PDB 结构文件**: `data/rocklin/all_AF_rank0_pdbs/`
 - **ProteinMPNN 权重**: 自动使用默认权重 `/home/xy_th/ProteinMPNN/vanilla_model_weights/v_48_020.pt`
+- **ProAgg 模型选择**：在 `configs/default.yaml` 中通过 `model.model_name` 切换（默认 `proagg_mlp_v1`）
 
 ---
 
@@ -123,6 +124,18 @@ python src/dpo/sample_and_score.py \
 - 第 i 名与第 (N/2 + i) 名配对 -> 每个 backbone 最多 N/2 对
 - 12 个序列 -> 6 对/backbone
 
+**重要提示：采样策略与最终使用方式对齐**
+
+本项目下游常见使用方式是：对同一 backbone 采样 N 条序列，取 `ProAgg max@N` 作为候选（best-of-N）。
+因此需要保证：
+
+- `--temperature` 不要过低，否则采样接近贪心，多样性下降，best-of-N 失效。
+- `--num_samples` 不要过小，否则会同时限制：
+  1) 每个 backbone 的 pairs 数量与可学习的 score gap；
+  2) `ProAgg max@N` 的上限（尾部探索不充分）。
+
+若目标是提升 `ProAgg max@N`，建议把 `--num_samples` 提到 32 或 64，并对 `--temperature` 做 0.3~0.8 的 sweep。
+
 **输出**:
 
 | 文件 | 内容 |
@@ -155,7 +168,7 @@ python src/dpo/dpo_train.py \
 | 参数 | 含义 | 当前值 | 参考 (ProtAlign) |
 |------|------|--------|-----------------|
 | `--lr` | 学习率 | 1e-5 | 5e-6 |
-| `--beta` | DPO 温度 (越大越信任偏好信号) | 0.1 | 0.5 |
+| `--beta` | 偏好信号强度缩放（实现里直接乘在 margin 上） | 0.1 | 0.5 |
 | `--batch_size` | 等效 batch size (梯度累积) | 32 | 64 |
 | `--patience` | Early stopping patience | 3 | - |
 | `--grad_clip` | 梯度裁剪 | 1.0 | - |
@@ -164,7 +177,8 @@ python src/dpo/dpo_train.py \
 
 $$\mathcal{L} = -\log\sigma\Big(\beta \big[(\log\pi_\theta(y_w|x) - \log\pi_\text{ref}(y_w|x)) - (\log\pi_\theta(y_l|x) - \log\pi_\text{ref}(y_l|x))\big]\Big)$$
 
-β 控制偏好信号 vs 保持逆折叠能力的权衡.
+β 在本实现中主要是“偏好 margin 的缩放系数”，**越大代表偏好梯度越强**，更容易把 policy 推得更尖、更集中。
+如果观察到 diversity 崩溃或 `ProAgg max@N` 下降，优先尝试减小 β（例如 0.01~0.1），并结合在线评估指标选 checkpoint（详见 `docs/DPO_ANALYSIS.md`）。
 
 **输出**:
 

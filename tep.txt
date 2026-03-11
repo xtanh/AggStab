@@ -1,0 +1,18 @@
+python src/dpo/evaluate.py \
+      --pdb_dir data/dpo/representative_pdbs/test \
+      --dpo_mpnn_ckpt results/dpo_v2/mpnn_dpo_best.pt \
+      --proagg_ckpt results/lightning_logs/version_14/checkpoints/best_epoch=08_val_spearman=0.7548.ckpt \
+      --output results/dpo_v2/eval_results.json \
+      --num_samples 12 --temperature 0.5 --device cuda:3 
+
+
+python src/dpo/evaluate.py \
+  --pdb_dir "data/dpo/representative_pdbs/test" \
+  --dpo_mpnn_ckpt "results/dpo_mini_beta0.5_e10_n64_t0.5_tr400_va50_te50/mpnn_dpo_best.pt" \
+  --proagg_ckpt "results/lightning_logs/version_14/checkpoints/best_epoch=08_val_spearman=0.7548.ckpt" \
+  --proagg_config "/home/xy_th/Project_protein_aggregation/configs/default.yaml" \
+  --output "/home/xy_th/Project_protein_aggregation/results/dpo_mini_beta0.5_e10_n64_t0.5_tr400_va50_te50/eval_results.json" \
+  --num_samples "64" \
+  --temperature "0.5" \
+  --max_pdbs "50" \
+  --device "cuda:3"
