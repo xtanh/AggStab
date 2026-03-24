@@ -13,10 +13,8 @@ Usage:
 
 import os
 import sys
-import copy
 import argparse
 import json
-from datetime import datetime
 
 import torch
 import torch.nn as nn
@@ -69,6 +67,7 @@ class DPOPairDataset(Dataset):
             "seq_loser": pair["seq_loser"],
             "score_winner": pair["score_winner"],
             "score_loser": pair["score_loser"],
+            "objective": pair.get("objective", "agg"),
         }
 
 
@@ -207,22 +206,78 @@ def train_dpo(args):
     device = args.device
     set_global_seed(args.seed)
 
-    print("Loading DPO training pairs...", flush=True)
-    data = torch.load(args.pairs_path, map_location="cpu")
-    pairs = data["pairs"]
-    print(f"  {len(pairs)} training pairs loaded", flush=True)
+    def _load_single_pair_list(path, key="pairs", score_gap_delta=0.0, max_pairs=-1, tag="train"):
+        print(f"Loading {tag} DPO pairs from {path}...", flush=True)
+        data = torch.load(path, map_location="cpu")
+        pairs = data[key]
+        print(f"  {len(pairs)} {tag} pairs loaded ({key})", flush=True)
+        if score_gap_delta > 0.0:
+            n_before = len(pairs)
+            pairs = [pair for pair in pairs if pair.get("score_gap", float("inf")) > score_gap_delta]
+            print(
+                f"  {tag}:{key} score_gap_delta={score_gap_delta}: {n_before} -> {len(pairs)} pairs",
+                flush=True,
+            )
+        if max_pairs > 0:
+            pairs = pairs[:max_pairs]
+            print(f"  {tag}:{key} truncated to {len(pairs)} pairs", flush=True)
+        return pairs
 
-    if args.score_gap_delta > 0.0:
-        n_before = len(pairs)
-        pairs = [p for p in pairs if p.get("score_gap", float("inf")) > args.score_gap_delta]
-        print(f"  score_gap_delta={args.score_gap_delta}: {n_before} -> {len(pairs)} pairs", flush=True)
+    dual_objective = bool(args.agg_pairs_path and args.stab_pairs_path)
+    if dual_objective:
+        train_agg_pairs = _load_single_pair_list(
+            args.agg_pairs_path,
+            key="agg_pairs",
+            score_gap_delta=args.agg_score_gap_delta,
+            max_pairs=args.max_pairs,
+            tag="train",
+        )
+        train_stab_pairs = _load_single_pair_list(
+            args.stab_pairs_path,
+            key="stab_pairs",
+            score_gap_delta=args.stab_score_gap_delta,
+            max_pairs=args.max_pairs,
+            tag="train",
+        )
+        train_agg_dataset = DPOPairDataset(train_agg_pairs, device=device)
+        train_stab_dataset = DPOPairDataset(train_stab_pairs, device=device)
+        pairs = None
+    else:
+        print("Loading DPO training pairs...", flush=True)
+        data = torch.load(args.pairs_path, map_location="cpu")
+        pairs = data["pairs"]
+        print(f"  {len(pairs)} training pairs loaded", flush=True)
 
-    if args.max_pairs > 0:
-        pairs = pairs[: args.max_pairs]
-        print(f"  Using first {len(pairs)} pairs", flush=True)
+        if args.score_gap_delta > 0.0:
+            n_before = len(pairs)
+            pairs = [p for p in pairs if p.get("score_gap", float("inf")) > args.score_gap_delta]
+            print(f"  score_gap_delta={args.score_gap_delta}: {n_before} -> {len(pairs)} pairs", flush=True)
+
+        if args.max_pairs > 0:
+            pairs = pairs[: args.max_pairs]
+            print(f"  Using first {len(pairs)} pairs", flush=True)
 
     val_dataset = None
-    if args.val_pairs_path:
+    val_agg_dataset = None
+    val_stab_dataset = None
+    if dual_objective and args.val_agg_pairs_path and args.val_stab_pairs_path:
+        val_agg_pairs = _load_single_pair_list(
+            args.val_agg_pairs_path,
+            key="agg_pairs",
+            score_gap_delta=args.agg_score_gap_delta,
+            max_pairs=args.max_pairs,
+            tag="val",
+        )
+        val_stab_pairs = _load_single_pair_list(
+            args.val_stab_pairs_path,
+            key="stab_pairs",
+            score_gap_delta=args.stab_score_gap_delta,
+            max_pairs=args.max_pairs,
+            tag="val",
+        )
+        val_agg_dataset = DPOPairDataset(val_agg_pairs, device=device)
+        val_stab_dataset = DPOPairDataset(val_stab_pairs, device=device)
+    elif args.val_pairs_path:
         print("Loading DPO validation pairs...", flush=True)
         val_data = torch.load(args.val_pairs_path, map_location="cpu")
         val_pairs = val_data["pairs"]
@@ -245,7 +300,7 @@ def train_dpo(args):
 
     optimizer = torch.optim.Adam(model_theta.parameters(), lr=args.lr)
 
-    dataset = DPOPairDataset(pairs, device=device)
+    dataset = DPOPairDataset(pairs, device=device) if pairs is not None else None
 
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -258,8 +313,23 @@ def train_dpo(args):
 
     for epoch in range(args.epochs):
         model_theta.train()
-        indices = list(range(len(dataset)))
-        np.random.shuffle(indices)
+        if dual_objective:
+            agg_indices = list(range(len(train_agg_dataset)))
+            stab_indices = list(range(len(train_stab_dataset)))
+            np.random.shuffle(agg_indices)
+            np.random.shuffle(stab_indices)
+            base_count = max(len(agg_indices), len(stab_indices))
+            objective_schedule = (
+                ["agg"] * max(1, args.dual_agg_ratio) * base_count
+                + ["stab"] * max(1, args.dual_stab_ratio) * base_count
+            )
+            np.random.shuffle(objective_schedule)
+            indices = objective_schedule
+            agg_pointer = 0
+            stab_pointer = 0
+        else:
+            indices = list(range(len(dataset)))
+            np.random.shuffle(indices)
 
         epoch_loss = 0.0
         epoch_acc = 0.0
@@ -269,9 +339,20 @@ def train_dpo(args):
         optimizer.zero_grad()
 
         for step, idx in enumerate(indices):
-            item = dataset[idx]
-
-            feat = dataset._get_feat(item["pdb_path"])
+            if dual_objective:
+                if idx == "agg":
+                    local_index = agg_indices[agg_pointer % len(agg_indices)]
+                    agg_pointer += 1
+                    active_dataset = train_agg_dataset
+                else:
+                    local_index = stab_indices[stab_pointer % len(stab_indices)]
+                    stab_pointer += 1
+                    active_dataset = train_stab_dataset
+                item = active_dataset[local_index]
+                feat = active_dataset._get_feat(item["pdb_path"])
+            else:
+                item = dataset[idx]
+                feat = dataset._get_feat(item["pdb_path"])
             L = feat["X"].shape[1]
 
             S_w = seq_to_indices(item["seq_winner"], L, device).unsqueeze(0)
@@ -322,7 +403,64 @@ def train_dpo(args):
         )
 
         # --- Validation ---
-        if val_dataset is not None:
+        if dual_objective and val_agg_dataset is not None and val_stab_dataset is not None:
+            val_agg_metrics = evaluate_dpo(
+                model_theta, model_ref, val_agg_dataset,
+                beta=args.beta, device=device,
+            )
+            val_stab_metrics = evaluate_dpo(
+                model_theta, model_ref, val_stab_dataset,
+                beta=args.beta, device=device,
+            )
+            total_ratio = max(1, args.dual_agg_ratio) + max(1, args.dual_stab_ratio)
+            agg_weight = max(1, args.dual_agg_ratio) / total_ratio
+            stab_weight = max(1, args.dual_stab_ratio) / total_ratio
+            val_metrics = {
+                "loss": agg_weight * val_agg_metrics["loss"] + stab_weight * val_stab_metrics["loss"],
+                "accuracy": agg_weight * val_agg_metrics["accuracy"] + stab_weight * val_stab_metrics["accuracy"],
+                "reward_margin": agg_weight * val_agg_metrics["reward_margin"] + stab_weight * val_stab_metrics["reward_margin"],
+            }
+            record["val_agg_loss"] = val_agg_metrics["loss"]
+            record["val_agg_accuracy"] = val_agg_metrics["accuracy"]
+            record["val_agg_reward_margin"] = val_agg_metrics["reward_margin"]
+            record["val_stab_loss"] = val_stab_metrics["loss"]
+            record["val_stab_accuracy"] = val_stab_metrics["accuracy"]
+            record["val_stab_reward_margin"] = val_stab_metrics["reward_margin"]
+            record["val_loss"] = val_metrics["loss"]
+            record["val_accuracy"] = val_metrics["accuracy"]
+            record["val_reward_margin"] = val_metrics["reward_margin"]
+
+            print(
+                f"           | val_loss={val_metrics['loss']:.4f} val_acc={val_metrics['accuracy']:.3f} "
+                f"val_margin={val_metrics['reward_margin']:.4f} "
+                f"(agg={val_agg_metrics['loss']:.4f}, stab={val_stab_metrics['loss']:.4f})",
+                flush=True,
+            )
+
+            improved = val_metrics["loss"] < best_val_loss
+            if improved:
+                best_val_loss = val_metrics["loss"]
+                best_val_acc = val_metrics["accuracy"]
+                patience_counter = 0
+                best_path = os.path.join(args.output_dir, "mpnn_dpo_best.pt")
+                _save_checkpoint(model_theta, epoch + 1, args, best_path)
+                print(
+                    f"  -> New best model saved (val_loss={best_val_loss:.4f}, "
+                    f"val_acc={best_val_acc:.3f})",
+                    flush=True,
+                )
+            else:
+                patience_counter += 1
+                print(f"  -> No improvement ({patience_counter}/{args.patience})")
+
+            if args.patience > 0 and patience_counter >= args.patience:
+                print(
+                    f"\nEarly stopping at epoch {epoch+1} "
+                    f"(best val_loss={best_val_loss:.4f}, val_acc={best_val_acc:.3f})"
+                )
+                history.append(record)
+                break
+        elif val_dataset is not None:
             val_metrics = evaluate_dpo(
                 model_theta, model_ref, val_dataset,
                 beta=args.beta, device=device,
@@ -364,7 +502,7 @@ def train_dpo(args):
             _save_checkpoint(model_theta, epoch + 1, args, ckpt_path)
             print(f"  Saved checkpoint: {ckpt_path}")
 
-    if val_dataset is not None:
+    if val_dataset is not None or (dual_objective and val_agg_dataset is not None and val_stab_dataset is not None):
         print(f"\nBest model: val_loss={best_val_loss:.4f}, val_acc={best_val_acc:.3f}")
         print(f"Best checkpoint: {os.path.join(args.output_dir, 'mpnn_dpo_best.pt')}")
 
@@ -378,11 +516,19 @@ def train_dpo(args):
 
 def main():
     parser = argparse.ArgumentParser(description="DPO fine-tuning of ProteinMPNN")
-    parser.add_argument("--pairs_path", type=str, required=True,
+    parser.add_argument("--pairs_path", type=str, default=None,
                         help="Path to training preference pairs (.pt)")
+    parser.add_argument("--agg_pairs_path", type=str, default=None,
+                        help="Path to dual-objective training pair file containing agg_pairs")
+    parser.add_argument("--stab_pairs_path", type=str, default=None,
+                        help="Path to dual-objective training pair file containing stab_pairs")
     parser.add_argument("--val_pairs_path", type=str, default=None,
                         help="Path to validation preference pairs (.pt). "
                              "If provided, enables best-checkpoint saving and early stopping.")
+    parser.add_argument("--val_agg_pairs_path", type=str, default=None,
+                        help="Path to dual-objective validation pair file containing agg_pairs")
+    parser.add_argument("--val_stab_pairs_path", type=str, default=None,
+                        help="Path to dual-objective validation pair file containing stab_pairs")
     parser.add_argument("--mpnn_ckpt", type=str, default=None,
                         help="ProteinMPNN checkpoint (default: v_48_020)")
     parser.add_argument("--output_dir", type=str, default="results/dpo/")
@@ -395,8 +541,16 @@ def main():
     parser.add_argument("--score_gap_delta", type=float, default=0.0,
                         help="Filter out pairs whose score_gap <= delta. "
                              "Removes noisy pairs without re-sampling (applied at load time).")
+    parser.add_argument("--agg_score_gap_delta", type=float, default=0.0,
+                        help="Pair filter for aggregation objective when using dual-objective training.")
+    parser.add_argument("--stab_score_gap_delta", type=float, default=0.0,
+                        help="Pair filter for stability objective when using dual-objective training.")
     parser.add_argument("--batch_size", type=int, default=32,
                         help="Effective batch size via gradient accumulation")
+    parser.add_argument("--dual_agg_ratio", type=int, default=1,
+                        help="Sampling ratio for aggregation batches in dual-objective mode.")
+    parser.add_argument("--dual_stab_ratio", type=int, default=1,
+                        help="Sampling ratio for stability batches in dual-objective mode.")
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--max_pairs", type=int, default=-1)
     parser.add_argument("--patience", type=int, default=3,
@@ -406,6 +560,9 @@ def main():
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for training order / torch RNG")
     args = parser.parse_args()
+
+    if not (args.pairs_path or (args.agg_pairs_path and args.stab_pairs_path)):
+        parser.error("Provide either --pairs_path for single-objective DPO or both --agg_pairs_path and --stab_pairs_path for dual-objective DPO.")
 
     train_dpo(args)
 

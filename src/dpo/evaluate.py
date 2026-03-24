@@ -2,6 +2,7 @@
 
 Compares original and DPO-finetuned ProteinMPNN on a set of PDB backbones:
   1. ProAgg score (aggregation predictor)
+  1b. Optional stability score (`deltaG`)
   2. ProteinMPNN sequence recovery / log-prob (proxy for designability)
   3. Sequence diversity
 
@@ -37,9 +38,9 @@ from src.mpnn.mpnn_wrapper import (
 from transformers import EsmTokenizer
 
 from src.dpo.sample_and_score import (
-    score_sequences_with_proagg,
     build_struct_token_lookup,
 )
+from src.dpo.sample_and_score_dual import score_sequences_with_predictor
 from src.ln.lightning_model import LightningProAggModel
 from src.config.utils import load_yaml_config
 
@@ -64,6 +65,7 @@ def sequence_diversity(sequences):
 
 def evaluate_model(
     mpnn_model, proagg_model, pdb_files, struct_lookup, tokenizer,
+    stab_model=None, stab_tokenizer=None, stab_output_key="deltaG",
     num_samples=64, temperature=0.5,
     proagg_batch_size=8, device="cuda",
     seed=None,
@@ -96,10 +98,17 @@ def evaluate_model(
         )
         unique_seqs = unique_preserve_order(sequences)
 
-        proagg_scores = score_sequences_with_proagg(
-            proagg_model, unique_seqs, struct_tokens, tokenizer,
+        proagg_scores = score_sequences_with_predictor(
+            proagg_model, "score", unique_seqs, struct_tokens, tokenizer,
             device=device, batch_size=proagg_batch_size,
         )
+        if stab_model is not None:
+            stab_scores = score_sequences_with_predictor(
+                stab_model, stab_output_key, unique_seqs, struct_tokens, stab_tokenizer,
+                device=device, batch_size=proagg_batch_size,
+            )
+        else:
+            stab_scores = None
 
         mpnn_log_probs, _ = compute_log_probs(
             mpnn_model, feat, unique_seqs, device=device,
@@ -107,7 +116,7 @@ def evaluate_model(
 
         diversity = sequence_diversity(unique_seqs)
 
-        results.append({
+        result = {
             "pdb_name": protein_name,
             "n_unique": len(unique_seqs),
             "proagg_mean": proagg_scores.mean().item(),
@@ -118,7 +127,14 @@ def evaluate_model(
             "diversity": diversity,
             "best_seq": unique_seqs[torch.argmax(proagg_scores).item()],
             "best_proagg_score": proagg_scores.max().item(),
-        })
+        }
+        if stab_scores is not None:
+            result["deltaG_mean"] = stab_scores.mean().item()
+            result["deltaG_max"] = stab_scores.max().item()
+            result["deltaG_min"] = stab_scores.min().item()
+            result["best_stab_seq"] = unique_seqs[torch.argmax(stab_scores).item()]
+            result["best_deltaG"] = stab_scores.max().item()
+        results.append(result)
 
     return results
 
@@ -130,6 +146,8 @@ def main():
     parser.add_argument("--dpo_mpnn_ckpt", type=str, required=True)
     parser.add_argument("--proagg_ckpt", type=str, required=True)
     parser.add_argument("--proagg_config", type=str, default="configs/default.yaml")
+    parser.add_argument("--stab_ckpt", type=str, default=None)
+    parser.add_argument("--stab_config", type=str, default=None)
     parser.add_argument("--output", type=str, default="results/dpo/eval_results.json")
     parser.add_argument("--num_samples", type=int, default=12)
     parser.add_argument("--temperature", type=float, default=0.5,
@@ -160,6 +178,17 @@ def main():
     tokenizer = EsmTokenizer.from_pretrained(cfg.model.saprot_path)
     struct_lookup = build_struct_token_lookup(args.data_csv)
 
+    stab_model = None
+    stab_tokenizer = None
+    if args.stab_ckpt and args.stab_config:
+        stab_cfg = load_yaml_config(args.stab_config)
+        stab_lightning = LightningProAggModel.load_from_checkpoint(
+            args.stab_ckpt, cfg=stab_cfg,
+        )
+        stab_model = stab_lightning.model.to(device)
+        stab_model.eval()
+        stab_tokenizer = EsmTokenizer.from_pretrained(stab_cfg.model.saprot_path)
+
     pdb_files = sorted(glob.glob(os.path.join(args.pdb_dir, "*.pdb")))
     if not pdb_files:
         print(f"No PDB files found in {args.pdb_dir}")
@@ -181,6 +210,7 @@ def main():
     with torch.no_grad():
         original_results = evaluate_model(
             original_model, proagg_model, pdb_files, struct_lookup, tokenizer,
+            stab_model=stab_model, stab_tokenizer=stab_tokenizer,
             num_samples=args.num_samples, temperature=args.temperature,
             proagg_batch_size=args.proagg_batch_size,
             device=device,
@@ -199,6 +229,7 @@ def main():
     with torch.no_grad():
         dpo_results = evaluate_model(
             dpo_model, proagg_model, pdb_files, struct_lookup, tokenizer,
+            stab_model=stab_model, stab_tokenizer=stab_tokenizer,
             num_samples=args.num_samples, temperature=args.temperature,
             proagg_batch_size=args.proagg_batch_size,
             device=device,
@@ -221,6 +252,13 @@ def main():
         print(f"    ProAgg max:   original={orig['proagg_max']:.4f}  "
               f"dpo={dpo['proagg_max']:.4f}  "
               f"delta={dpo['proagg_max']-orig['proagg_max']:+.4f}")
+        if "deltaG_mean" in orig and "deltaG_mean" in dpo:
+            print(f"    deltaG mean:  original={orig['deltaG_mean']:.4f}  "
+                  f"dpo={dpo['deltaG_mean']:.4f}  "
+                  f"delta={dpo['deltaG_mean']-orig['deltaG_mean']:+.4f}")
+            print(f"    deltaG max:   original={orig['deltaG_max']:.4f}  "
+                  f"dpo={dpo['deltaG_max']:.4f}  "
+                  f"delta={dpo['deltaG_max']-orig['deltaG_max']:+.4f}")
         print(f"    MPNN logprob: original={orig['mpnn_logprob_mean']:.4f}  "
               f"dpo={dpo['mpnn_logprob_mean']:.4f}")
         print(f"    Diversity:    original={orig['diversity']:.4f}  "
