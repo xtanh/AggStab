@@ -1,0 +1,41 @@
+seed: 42
+data_dir: ./data/rocklin
+
+model:
+  model_name: proagg_mlp_v36
+  saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
+  lora:
+    enabled: true
+    r: 4
+    alpha: 8
+    dropout: 0.1
+    target_modules: ["query", "key", "value"]
+
+train:
+  save_dir: results/
+  batch_size: 32
+  num_workers: 4
+  lr: 1e-4
+  lora_lr: 5e-5
+  epochs: 30
+  patience: 3
+  weight_decay: 0.4
+  gradient_clip_val: 0.5
+  monitor_metric: val_spearman
+  use_scheduler: true
+  scheduler:
+    name: ReduceLROnPlateau
+    mode: max
+    factor: 0.5
+    patience: 3
+    min_lr: 1e-7
+  mse_weight: 1.0
+  ranking_weight: 1.2
+  ranking_margin: 0.25
+  deltaG_weight: 0.1
+  deltaG_ci_weighting: true
+
+hardware:
+  accelerator: gpu
+  devices: [0]
+  precision: 16

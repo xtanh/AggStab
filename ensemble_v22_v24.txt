@@ -1,0 +1,10 @@
+Ensemble Evaluation Results
+============================================================
+Models used: 2
+  [1] results/lightning_logs/version_22/checkpoints/best_epoch=08_val_spearman=0.7637.ckpt
+  [2] results/lightning_logs/version_24/checkpoints/best_epoch=07_val_spearman=0.7629.ckpt
+============================================================
+Test MSE: 0.576478
+Test Pearson: 0.733241
+Test Spearman: 0.748817
+============================================================

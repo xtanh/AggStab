@@ -1,9 +1,9 @@
 """Lightning module for ProAgg with Ranking Loss."""
 import os
 import sys
-import pandas as pd
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import pytorch_lightning as pl
 from torchmetrics.regression import PearsonCorrCoef, SpearmanCorrCoef
 
@@ -11,6 +11,8 @@ FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJ_DIR = FILE_DIR[:FILE_DIR.index('src')]
 sys.path.append(PROJ_DIR)
 
+# Import ProAgg models to ensure registration
+import src.models.ProAgg  # noqa: F401
 from src.models.factory import build_proagg_model
 
 
@@ -30,21 +32,12 @@ class LightningProAggModelRanking(pl.LightningModule):
         self.ranking_pair_weighting = cfg.train.get("ranking_pair_weighting", "uniform")
         self.ranking_gap_scale = cfg.train.get("ranking_gap_scale", 1.0)
         self.ranking_pair_clip = cfg.train.get("ranking_pair_clip", None)
-        self.ranking_tail_threshold = cfg.train.get("ranking_tail_threshold", None)
-        self.ranking_tail_pair_weight = cfg.train.get("ranking_tail_pair_weight", 1.0)
-        self.ranking_tail_pair_weight_both = cfg.train.get("ranking_tail_pair_weight_both", None)
-        self.regression_sample_weighting = cfg.train.get("regression_sample_weighting", "uniform")
-        self.tail_bin_edges = torch.tensor(cfg.train.get("tail_bin_edges", [-3.0, 0.0]), dtype=torch.float32)
-        self.register_buffer("tail_bin_edges_buffer", self.tail_bin_edges)
-        self.tail_bin_weights = torch.tensor(cfg.train.get("tail_bin_weights", [2.0, 1.0, 1.3]), dtype=torch.float32)
-        self.register_buffer("tail_bin_weights_buffer", self.tail_bin_weights)
-        self.ordinal_weight = cfg.train.get("ordinal_weight", 0.0)
-        self.ordinal_thresholds = torch.tensor(cfg.train.get("ordinal_thresholds", [-3.0, -2.0, -1.0, 0.0]), dtype=torch.float32)
-        self.register_buffer("ordinal_thresholds_buffer", self.ordinal_thresholds)
-        self.bin_classification_weight = cfg.train.get("bin_classification_weight", 0.0)
-        self.bin_edges = torch.tensor(cfg.train.get("bin_edges", [-3.0, -2.0, -1.0, 0.0]), dtype=torch.float32)
-        self.register_buffer("bin_edges_buffer", self.bin_edges)
-        self.class_weights = self._build_bin_class_weights() if self.bin_classification_weight > 0 else None
+        self.cl_weight = cfg.train.get("cl_weight", 0.0)
+        self.cl_temp = cfg.train.get("cl_temperature", 0.1)
+        self.cl_pos_sigma = cfg.train.get("cl_pos_sigma", 0.5)
+        self.cl_neg_sigma = cfg.train.get("cl_neg_sigma", 2.0)
+        self.delta_g_weight = cfg.train.get("deltaG_weight", 0.0)
+        self.delta_g_ci_weighting = cfg.train.get("deltaG_ci_weighting", False)
 
         self.train_metrics = nn.ModuleDict({
             "pearson": PearsonCorrCoef(),
@@ -58,74 +51,113 @@ class LightningProAggModelRanking(pl.LightningModule):
             "pearson": PearsonCorrCoef(),
             "spearman": SpearmanCorrCoef(),
         })
-        self.train_bin_correct = 0
-        self.train_bin_total = 0
-        self.val_bin_correct = 0
-        self.val_bin_total = 0
-        self.test_bin_correct = 0
-        self.test_bin_total = 0
 
     def forward(self, batch):
         return self.model(batch)
 
-    def _build_bin_class_weights(self):
-        if not self.cfg.train.get("use_bin_class_weights", False):
-            return None
+    def _forward_for_training(self, batch):
+        if self.cl_weight <= 0:
+            return self.model(batch)
 
-        train_path = os.path.join(self.cfg.data_dir, "train.csv")
-        df = pd.read_csv(train_path, usecols=["log2_fold_change_75_clip"])
-        scores = torch.tensor(df["log2_fold_change_75_clip"].values, dtype=torch.float32)
-        labels = self._targets_to_bins(scores)
-        counts = torch.bincount(labels, minlength=len(self.bin_edges_buffer) + 1).float()
-        counts = counts.clamp(min=1.0)
-        weights = counts.sum() / counts
-        weights = weights / weights.mean()
-        return weights
-
-    def _targets_to_bins(self, tgt):
-        return torch.bucketize(tgt, self.bin_edges_buffer.to(tgt.device))
-
-    def _classification_loss(self, logits, tgt_bins):
-        if self.class_weights is not None:
-            return nn.functional.cross_entropy(logits, tgt_bins, weight=self.class_weights.to(logits.device))
-        return nn.functional.cross_entropy(logits, tgt_bins)
+        try:
+            return self.model(batch, return_embedding=True)
+        except TypeError as exc:
+            raise TypeError(
+                "Contrastive auxiliary loss requires a model that supports "
+                "forward(batch, return_embedding=True)."
+            ) from exc
 
     def _regression_loss(self, pred, tgt):
-        if self.regression_sample_weighting != "tail":
-            return nn.functional.mse_loss(pred, tgt)
+        return nn.functional.mse_loss(pred, tgt)
 
-        bucket_idx = torch.bucketize(tgt.detach(), self.tail_bin_edges_buffer.to(tgt.device))
-        sample_weights = self.tail_bin_weights_buffer.to(tgt.device)[bucket_idx]
-        sq_error = (pred - tgt).pow(2)
-        return (sq_error * sample_weights).sum() / sample_weights.sum().clamp(min=1e-8)
+    def _delta_g_loss(self, pred_delta_g, batch):
+        target = batch["deltaG"].float().flatten()
+        pred = pred_delta_g.float().flatten()
+        valid_mask = torch.isfinite(target)
+        if valid_mask.sum() == 0:
+            return torch.tensor(0.0, device=pred.device)
 
-    def _ordinal_targets(self, tgt):
-        thresholds = self.ordinal_thresholds_buffer.to(tgt.device)
-        return (tgt.unsqueeze(-1) > thresholds.unsqueeze(0)).float()
+        loss = (pred[valid_mask] - target[valid_mask]) ** 2
+        if self.delta_g_ci_weighting and "deltaG_95CI" in batch:
+            ci = batch["deltaG_95CI"].float().flatten()[valid_mask]
+            ci = torch.nan_to_num(ci, nan=0.0, posinf=0.0, neginf=0.0)
+            weights = 1.0 / (1.0 + ci)
+            loss = loss * weights
+        return loss.mean()
 
-    def _ordinal_loss(self, logits, tgt):
-        ordinal_tgt = self._ordinal_targets(tgt)
-        return nn.functional.binary_cross_entropy_with_logits(logits, ordinal_tgt)
+    def _contrastive_loss(self, embeddings, scores):
+        """Continuous-weighted contrastive loss.
 
-    def _ordinal_accuracy(self, logits, tgt):
-        ordinal_tgt = self._ordinal_targets(tgt)
-        pred = (torch.sigmoid(logits) > 0.5).float()
-        return (pred == ordinal_tgt).float().mean()
+        Instead of hard thresholds (|diff| < pos_threshold for positive,
+        |diff| > neg_threshold for negative), uses continuous weights based on
+        Gaussian kernels. All pairs contribute to the loss with varying weights.
+        """
+        batch_size = embeddings.size(0)
+        if batch_size < 4:
+            return torch.tensor(0.0, device=embeddings.device)
 
-    def _update_bin_stats(self, stage, logits, tgt_bins):
-        pred_bins = torch.argmax(logits, dim=-1)
-        correct = (pred_bins == tgt_bins).sum().item()
-        total = tgt_bins.numel()
+        # Compute score differences matrix
+        score_diff = scores.unsqueeze(0) - scores.unsqueeze(1)  # (B, B)
+        abs_score_diff = score_diff.abs()
 
-        if stage == "train":
-            self.train_bin_correct += correct
-            self.train_bin_total += total
-        elif stage == "val":
-            self.val_bin_correct += correct
-            self.val_bin_total += total
+        # Normalize embeddings
+        embeddings_norm = F.normalize(embeddings, dim=1)
+        sim_matrix = torch.matmul(embeddings_norm, embeddings_norm.t()) / self.cl_temp
+
+        # Exclude diagonal (self-similarity)
+        eye_mask = 1 - torch.eye(batch_size, device=embeddings.device)
+
+        # Continuous positive weights: higher when |diff| is small
+        # Gaussian kernel: w_pos = exp(-|diff|^2 / (2 * sigma_pos^2))
+        pos_weights = torch.exp(-abs_score_diff ** 2 / (2 * self.cl_pos_sigma ** 2))
+        pos_weights = pos_weights * eye_mask  # Remove diagonal
+
+        # Continuous negative weights: higher when |diff| is large
+        # Using (1 - Gaussian) or directly based on distance
+        # Gaussian with larger sigma, then invert: w_neg = 1 - exp(-|diff|^2 / (2 * sigma_neg^2))
+        neg_weights = 1.0 - torch.exp(-abs_score_diff ** 2 / (2 * self.cl_neg_sigma ** 2))
+        neg_weights = neg_weights * eye_mask  # Remove diagonal
+
+        # InfoNCE with continuous weights
+        loss = torch.tensor(0.0, device=embeddings.device)
+        total_weight = torch.tensor(0.0, device=embeddings.device)
+
+        for i in range(batch_size):
+            # All other samples are potential positives/negatives with weights
+            pos_w = pos_weights[i]  # (B,)
+            neg_w = neg_weights[i]  # (B,)
+
+            # Skip if this sample has no valid pairs
+            if pos_w.sum() < 1e-8 or neg_w.sum() < 1e-8:
+                continue
+
+            # Weighted positive similarity
+            # Instead of hard selection, use weighted sum
+            pos_sim = sim_matrix[i]  # (B,)
+
+            # Weighted negative similarity
+            neg_sim = sim_matrix[i]  # (B,)
+
+            # Compute weighted InfoNCE
+            # numerator: weighted sum of positive similarities
+            weighted_pos_sim = (pos_w * torch.exp(pos_sim)).sum()
+
+            # denominator: weighted sum of all similarities (pos + neg)
+            # Use pos_weights for positive contribution, neg_weights for negative
+            weighted_all_sim = (pos_w * torch.exp(pos_sim)).sum() + (neg_w * torch.exp(neg_sim)).sum()
+
+            if weighted_all_sim > 0:
+                # Use average of pos and neg weights as anchor weight
+                anchor_weight = (pos_w.sum() + neg_w.sum()) / 2
+                loss = loss - anchor_weight * torch.log(weighted_pos_sim / weighted_all_sim)
+                total_weight = total_weight + anchor_weight
+
+        if total_weight.item() > 0:
+            loss = loss / total_weight
         else:
-            self.test_bin_correct += correct
-            self.test_bin_total += total
+            loss = torch.tensor(0.0, device=embeddings.device)
+
+        return loss
 
     def ranking_loss(self, pred, tgt):
         """Pairwise ranking loss - encourages correct ordering.
@@ -168,24 +200,6 @@ class LightningProAggModelRanking(pl.LightningModule):
         else:
             pair_weights = torch.ones_like(loss_matrix)
 
-        if self.ranking_tail_threshold is not None:
-            tail_mask = (tgt <= float(self.ranking_tail_threshold))
-            tail_pair_mask = tail_mask.unsqueeze(0) | tail_mask.unsqueeze(1)
-            pair_weights = torch.where(
-                tail_pair_mask,
-                pair_weights * float(self.ranking_tail_pair_weight),
-                pair_weights,
-            )
-
-            both_tail_weight = self.ranking_tail_pair_weight_both
-            if both_tail_weight is not None:
-                both_tail_mask = tail_mask.unsqueeze(0) & tail_mask.unsqueeze(1)
-                pair_weights = torch.where(
-                    both_tail_mask,
-                    pair_weights * (float(both_tail_weight) / max(float(self.ranking_tail_pair_weight), 1e-8)),
-                    pair_weights,
-                )
-
         weighted_mask = mask * pair_weights
 
         # 只计算满足mask的pairs
@@ -194,7 +208,7 @@ class LightningProAggModelRanking(pl.LightningModule):
         return loss
 
     def training_step(self, batch, batch_idx):
-        out = self(batch)
+        out = self._forward_for_training(batch)
         tgt = batch["score"].float().flatten()
         pred = out["score"].float().flatten()
         mse_loss = self._regression_loss(pred, tgt)
@@ -204,17 +218,16 @@ class LightningProAggModelRanking(pl.LightningModule):
 
         # Total loss
         total_loss = self.mse_weight * mse_loss + self.ranking_weight * rank_loss
-        if self.ordinal_weight > 0 and "ordinal_logits" in out:
-            ordinal_loss = self._ordinal_loss(out["ordinal_logits"].float(), tgt)
-            total_loss = total_loss + self.ordinal_weight * ordinal_loss
-            self.log("train_ordinal_loss", ordinal_loss, on_step=False, on_epoch=True, sync_dist=True)
-            self.log("train_ordinal_acc", self._ordinal_accuracy(out["ordinal_logits"].float(), tgt), on_step=False, on_epoch=True, sync_dist=True)
-        if self.bin_classification_weight > 0 and "score_bin_logits" in out:
-            tgt_bins = self._targets_to_bins(tgt)
-            bin_loss = self._classification_loss(out["score_bin_logits"].float(), tgt_bins)
-            total_loss = total_loss + self.bin_classification_weight * bin_loss
-            self.log("train_bin_loss", bin_loss, on_step=False, on_epoch=True, sync_dist=True)
-            self._update_bin_stats("train", out["score_bin_logits"].float(), tgt_bins)
+        if self.cl_weight > 0:
+            if "embedding" not in out:
+                raise ValueError("Contrastive auxiliary loss enabled but model output has no 'embedding'.")
+            cl_loss = self._contrastive_loss(out["embedding"], tgt)
+            total_loss = total_loss + self.cl_weight * cl_loss
+            self.log("train_cl_loss", cl_loss, on_step=False, on_epoch=True, sync_dist=True)
+        if self.delta_g_weight > 0 and "deltaG" in out:
+            delta_g_loss = self._delta_g_loss(out["deltaG"], batch)
+            total_loss = total_loss + self.delta_g_weight * delta_g_loss
+            self.log("train_deltaG_loss", delta_g_loss, on_step=False, on_epoch=True, sync_dist=True)
 
         self.log("train_loss", total_loss, on_step=False, on_epoch=True, sync_dist=True)
         self.log("train_mse_loss", mse_loss, on_step=False, on_epoch=True, sync_dist=True)
@@ -230,15 +243,6 @@ class LightningProAggModelRanking(pl.LightningModule):
         tgt = batch["score"].float().flatten()
         pred = out["score"].float().flatten()
         loss = self._regression_loss(pred, tgt)
-        if self.ordinal_weight > 0 and "ordinal_logits" in out:
-            ordinal_loss = self._ordinal_loss(out["ordinal_logits"].float(), tgt)
-            self.log("val_ordinal_loss", ordinal_loss, on_step=False, on_epoch=True, sync_dist=True, prog_bar=False)
-            self.log("val_ordinal_acc", self._ordinal_accuracy(out["ordinal_logits"].float(), tgt), on_step=False, on_epoch=True, sync_dist=True, prog_bar=False)
-        if self.bin_classification_weight > 0 and "score_bin_logits" in out:
-            tgt_bins = self._targets_to_bins(tgt)
-            bin_loss = self._classification_loss(out["score_bin_logits"].float(), tgt_bins)
-            self.log("val_bin_loss", bin_loss, on_step=False, on_epoch=True, sync_dist=True, prog_bar=False)
-            self._update_bin_stats("val", out["score_bin_logits"].float(), tgt_bins)
 
         self.log("val_loss", loss, on_step=False, on_epoch=True, sync_dist=True, prog_bar=True)
 
@@ -251,15 +255,6 @@ class LightningProAggModelRanking(pl.LightningModule):
         tgt = batch["score"].float().flatten()
         pred = out["score"].float().flatten()
         loss = self._regression_loss(pred, tgt)
-        if self.ordinal_weight > 0 and "ordinal_logits" in out:
-            ordinal_loss = self._ordinal_loss(out["ordinal_logits"].float(), tgt)
-            self.log("test_ordinal_loss", ordinal_loss, on_step=False, on_epoch=True, sync_dist=True)
-            self.log("test_ordinal_acc", self._ordinal_accuracy(out["ordinal_logits"].float(), tgt), on_step=False, on_epoch=True, sync_dist=True)
-        if self.bin_classification_weight > 0 and "score_bin_logits" in out:
-            tgt_bins = self._targets_to_bins(tgt)
-            bin_loss = self._classification_loss(out["score_bin_logits"].float(), tgt_bins)
-            self.log("test_bin_loss", bin_loss, on_step=False, on_epoch=True, sync_dist=True)
-            self._update_bin_stats("test", out["score_bin_logits"].float(), tgt_bins)
 
         self.log("test_loss", loss, on_step=False, on_epoch=True, sync_dist=True)
 
@@ -270,30 +265,18 @@ class LightningProAggModelRanking(pl.LightningModule):
     def on_train_epoch_end(self):
         self.log("train_pearson", self.train_metrics["pearson"].compute(), sync_dist=True)
         self.log("train_spearman", self.train_metrics["spearman"].compute(), sync_dist=True)
-        if self.train_bin_total > 0:
-            self.log("train_bin_acc", self.train_bin_correct / self.train_bin_total, sync_dist=True)
-            self.train_bin_correct = 0
-            self.train_bin_total = 0
         self.train_metrics["pearson"].reset()
         self.train_metrics["spearman"].reset()
 
     def on_validation_epoch_end(self):
         self.log("val_pearson", self.val_metrics["pearson"].compute(), sync_dist=True, prog_bar=True)
         self.log("val_spearman", self.val_metrics["spearman"].compute(), sync_dist=True, prog_bar=True)
-        if self.val_bin_total > 0:
-            self.log("val_bin_acc", self.val_bin_correct / self.val_bin_total, sync_dist=True, prog_bar=False)
-            self.val_bin_correct = 0
-            self.val_bin_total = 0
         self.val_metrics["pearson"].reset()
         self.val_metrics["spearman"].reset()
 
     def on_test_epoch_end(self):
         self.log("test_pearson", self.test_metrics["pearson"].compute(), sync_dist=True)
         self.log("test_spearman", self.test_metrics["spearman"].compute(), sync_dist=True)
-        if self.test_bin_total > 0:
-            self.log("test_bin_acc", self.test_bin_correct / self.test_bin_total, sync_dist=True)
-            self.test_bin_correct = 0
-            self.test_bin_total = 0
         self.test_metrics["pearson"].reset()
         self.test_metrics["spearman"].reset()
 
@@ -303,7 +286,7 @@ class LightningProAggModelRanking(pl.LightningModule):
         if use_lora:
             lora_params = []
             head_params = []
-            for name, param in self.model.named_parameters():
+            for name, param in self.named_parameters():
                 if not param.requires_grad:
                     continue
                 if "lora_" in name:

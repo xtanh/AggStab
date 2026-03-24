@@ -18,6 +18,10 @@ class LightningProAggModel(pl.LightningModule):
         self.save_hyperparameters({"cfg": dict(cfg)})
         self.cfg = cfg
         self.model = build_proagg_model(self.cfg)
+        self.target_key = cfg.train.get("target_key", "score")
+        self.output_key = cfg.train.get("output_key", "score")
+        self.ci_weighting = cfg.train.get("ci_weighting", False)
+        self.ci_key = cfg.train.get("ci_key", None)
         self.criterion = nn.MSELoss()
 
         self.train_metrics = nn.ModuleDict({
@@ -37,14 +41,31 @@ class LightningProAggModel(pl.LightningModule):
         return self.model(batch)
 
     def _pred_tgt(self, out, batch):
-        pred = out["score"].float().flatten()
-        tgt  = batch["score"].float().flatten()
+        pred = out[self.output_key].float().flatten()
+        tgt = batch[self.target_key].float().flatten()
         return pred, tgt
+
+    def _loss(self, pred, tgt, batch):
+        valid_mask = torch.isfinite(tgt)
+        if valid_mask.sum() == 0:
+            return torch.tensor(0.0, device=pred.device)
+
+        pred = pred[valid_mask]
+        tgt = tgt[valid_mask]
+        sq_err = (pred - tgt) ** 2
+
+        if self.ci_weighting and self.ci_key and self.ci_key in batch:
+            ci = batch[self.ci_key].float().flatten()[valid_mask]
+            ci = torch.nan_to_num(ci, nan=0.0, posinf=0.0, neginf=0.0)
+            weights = 1.0 / (1.0 + ci)
+            sq_err = sq_err * weights
+
+        return sq_err.mean()
 
     def training_step(self, batch, batch_idx):
         out = self(batch)
         pred, tgt = self._pred_tgt(out, batch)
-        loss = self.criterion(pred, tgt)
+        loss = self._loss(pred, tgt, batch)
         self.log("train_loss", loss, on_step=False, on_epoch=True, sync_dist=True, prog_bar=False)
 
         self.train_metrics["pearson"].update(pred, tgt)
@@ -54,7 +75,7 @@ class LightningProAggModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         out = self(batch)
         pred, tgt = self._pred_tgt(out, batch)
-        loss = self.criterion(pred, tgt)
+        loss = self._loss(pred, tgt, batch)
         self.log("val_loss", loss, on_step=False, on_epoch=True, sync_dist=True, prog_bar=False)
 
         self.val_metrics["pearson"].update(pred, tgt)
@@ -64,7 +85,7 @@ class LightningProAggModel(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         out = self(batch)
         pred, tgt = self._pred_tgt(out, batch)
-        loss = self.criterion(pred, tgt)
+        loss = self._loss(pred, tgt, batch)
         self.log("test_loss", loss, on_step=False, on_epoch=True, sync_dist=True, prog_bar=False)
 
         self.test_metrics["pearson"].update(pred, tgt)

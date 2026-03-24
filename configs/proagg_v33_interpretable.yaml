@@ -1,0 +1,51 @@
+data_dir: /home/xy_th/Project_protein_aggregation/data/rocklin
+
+model:
+  model_name: proagg_mlp_v33
+  saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
+
+  # Hotspot encoder configuration
+  hotspot:
+    top_k: 5              # Number of key residues to extract
+    min_window: 3         # Context window around each hotspot
+
+  # LoRA configuration
+  lora:
+    enabled: true
+    r: 4
+    alpha: 8
+    dropout: 0.2
+    target_modules: ["query", "key", "value"]
+
+train:
+  save_dir: results/
+  lr: 1e-4
+  lora_lr: 5e-5
+  weight_decay: 0.3
+  batch_size: 32
+  num_workers: 4
+  patience: 3
+  epochs: 30
+  gradient_clip_val: 0.5
+
+  monitor_metric: val_spearman
+  use_scheduler: true
+  scheduler:
+    name: ReduceLROnPlateau
+    mode: max
+    factor: 0.5
+    patience: 3
+    min_lr: 1e-7
+
+  # Training losses
+  mse_weight: 1.0
+  ranking_weight: 1.4
+  ranking_margin: 0.3
+  ranking_pair_weighting: gap
+  ranking_gap_scale: 1.0
+  ranking_pair_clip: 4.0
+
+hardware:
+  accelerator: gpu
+  devices: [0]
+  precision: 16

@@ -26,9 +26,15 @@ DEVICE=${2:-"cuda:3"}
 PROJ_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJ_DIR"
 
-PDB_TRAIN="data/dpo/representative_pdbs/train"
-PDB_VALID="data/dpo/representative_pdbs/valid"
-PDB_TEST="data/dpo/representative_pdbs/test"
+PDB_TRAIN=${PDB_TRAIN:-"data/dpo/representative_pdbs/train"}
+PDB_VALID=${PDB_VALID:-"data/dpo/representative_pdbs/valid"}
+PDB_TEST=${PDB_TEST:-"data/dpo/representative_pdbs/test"}
+
+DEFAULT_PDB_ROOT="data/dpo/representative_pdbs"
+SOURCE_TAG="reps"
+if [[ "$PDB_TRAIN" != "${DEFAULT_PDB_ROOT}/train" || "$PDB_VALID" != "${DEFAULT_PDB_ROOT}/valid" || "$PDB_TEST" != "${DEFAULT_PDB_ROOT}/test" ]]; then
+  SOURCE_TAG=$(basename "$(dirname "$PDB_TRAIN")")
+fi
 
 # Scale knobs
 MAX_TRAIN_PDBS=${MAX_TRAIN_PDBS:-400}
@@ -53,7 +59,7 @@ BETAS=${BETAS:-"0.05 0.1 0.2 0.5"}
 # Repro
 SEED=${SEED:-42}
 
-RUN_TAG_BASE=${RUN_TAG_BASE:-"sweep_tr${MAX_TRAIN_PDBS}_va${MAX_VALID_PDBS}_te${MAX_TEST_PDBS}_n${NUM_SAMPLES}_t${TEMPERATURE}_e${DPO_EPOCHS}_seed${SEED}"}
+RUN_TAG_BASE=${RUN_TAG_BASE:-"${SOURCE_TAG}_sweep_tr${MAX_TRAIN_PDBS}_va${MAX_VALID_PDBS}_te${MAX_TEST_PDBS}_n${NUM_SAMPLES}_t${TEMPERATURE}_e${DPO_EPOCHS}_seed${SEED}"}
 
 TRAIN_PAIRS="data/dpo/${RUN_TAG_BASE}_train_pairs.pt"
 VAL_PAIRS="data/dpo/${RUN_TAG_BASE}_val_pairs.pt"

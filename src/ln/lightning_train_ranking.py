@@ -2,8 +2,10 @@
 import os
 import sys
 import argparse
+from collections import OrderedDict
 import pytorch_lightning as pl
 from datetime import datetime
+import torch
 
 FILE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJ_DIR = FILE_DIR[:FILE_DIR.index('src')]
@@ -16,6 +18,27 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 
+def maybe_load_init_checkpoint(model, cfg):
+    init_checkpoint = cfg.train.get("init_checkpoint", None)
+    if not init_checkpoint:
+        return
+
+    checkpoint = torch.load(init_checkpoint, map_location="cpu")
+    state_dict = checkpoint.get("state_dict", checkpoint)
+
+    model_state = OrderedDict()
+    for key, value in state_dict.items():
+        if key.startswith("model."):
+            model_state[key[len("model."):]] = value
+
+    missing_keys, unexpected_keys = model.model.load_state_dict(model_state, strict=False)
+    print(f"Initialized model weights from: {init_checkpoint}")
+    if missing_keys:
+        print(f"Missing keys: {missing_keys}")
+    if unexpected_keys:
+        print(f"Unexpected keys: {unexpected_keys}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Train ProAgg with Ranking Loss')
     parser.add_argument('--config', type=str, default='configs/proagg_v10.yaml', help='Path to config file')
@@ -26,6 +49,7 @@ def main():
 
     data_module = ProAggDataModule(cfg)
     model = LightningProAggModelRanking(cfg)
+    maybe_load_init_checkpoint(model, cfg)
 
     logger = TensorBoardLogger(save_dir=cfg.train.save_dir)
     monitor_metric = cfg.train.get('monitor_metric', 'val_spearman')

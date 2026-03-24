@@ -37,9 +37,15 @@ PY
   fi
 fi
 
-PDB_TRAIN="data/dpo/representative_pdbs/train"
-PDB_VALID="data/dpo/representative_pdbs/valid"
-PDB_TEST="data/dpo/representative_pdbs/test"
+PDB_TRAIN=${PDB_TRAIN:-"data/dpo/representative_pdbs/train"}
+PDB_VALID=${PDB_VALID:-"data/dpo/representative_pdbs/valid"}
+PDB_TEST=${PDB_TEST:-"data/dpo/representative_pdbs/test"}
+
+DEFAULT_PDB_ROOT="data/dpo/representative_pdbs"
+SOURCE_TAG="reps"
+if [[ "$PDB_TRAIN" != "${DEFAULT_PDB_ROOT}/train" || "$PDB_VALID" != "${DEFAULT_PDB_ROOT}/valid" || "$PDB_TEST" != "${DEFAULT_PDB_ROOT}/test" ]]; then
+  SOURCE_TAG=$(basename "$(dirname "$PDB_TRAIN")")
+fi
 
 # Subset sizes
 MAX_TRAIN_PDBS=${MAX_TRAIN_PDBS:-80}
@@ -51,6 +57,7 @@ NUM_SAMPLES=${NUM_SAMPLES:-12}
 TEMPERATURE=${TEMPERATURE:-0.5}
 PROAGG_CONFIG=${PROAGG_CONFIG:-"configs/default.yaml"}
 SEED=${SEED:-42}
+PROAGG_BATCH_SIZE=${PROAGG_BATCH_SIZE:-16}
 
 # DPO training
 DPO_EPOCHS=${DPO_EPOCHS:-5}
@@ -60,7 +67,7 @@ DPO_BATCH_SIZE=${DPO_BATCH_SIZE:-32}
 DPO_PATIENCE=${DPO_PATIENCE:-2}
 DPO_SCORE_GAP_DELTA=${DPO_SCORE_GAP_DELTA:-0.05}
 
-RUN_TAG=${RUN_TAG:-"mini_beta${DPO_BETA}_e${DPO_EPOCHS}_n${NUM_SAMPLES}_t${TEMPERATURE}_tr${MAX_TRAIN_PDBS}_va${MAX_VALID_PDBS}_te${MAX_TEST_PDBS}"}
+RUN_TAG=${RUN_TAG:-"${SOURCE_TAG}_beta${DPO_BETA}_e${DPO_EPOCHS}_n${NUM_SAMPLES}_t${TEMPERATURE}_tr${MAX_TRAIN_PDBS}_va${MAX_VALID_PDBS}_te${MAX_TEST_PDBS}"}
 
 TRAIN_PAIRS=${TRAIN_PAIRS:-"data/dpo/${RUN_TAG}_train_pairs.pt"}
 VAL_PAIRS=${VAL_PAIRS:-"data/dpo/${RUN_TAG}_val_pairs.pt"}
@@ -92,6 +99,7 @@ python src/dpo/sample_and_score.py \
   --output "$TRAIN_PAIRS" \
   --num_samples "$NUM_SAMPLES" \
   --temperature "$TEMPERATURE" \
+  --proagg_batch_size "$PROAGG_BATCH_SIZE" \
   --max_pdbs "$MAX_TRAIN_PDBS" \
   --device "$DEVICE" \
   --seed "$SEED"
@@ -107,6 +115,7 @@ python src/dpo/sample_and_score.py \
   --output "$VAL_PAIRS" \
   --num_samples "$NUM_SAMPLES" \
   --temperature "$TEMPERATURE" \
+  --proagg_batch_size "$PROAGG_BATCH_SIZE" \
   --max_pdbs "$MAX_VALID_PDBS" \
   --device "$DEVICE" \
   --seed "$SEED"
@@ -146,6 +155,7 @@ python src/dpo/evaluate.py \
   --output "$DPO_OUTPUT/eval_results.json" \
   --num_samples "$NUM_SAMPLES" \
   --temperature "$TEMPERATURE" \
+  --proagg_batch_size "$PROAGG_BATCH_SIZE" \
   --max_pdbs "$MAX_TEST_PDBS" \
   --device "$DEVICE" \
   --seed "$SEED"

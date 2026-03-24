@@ -32,9 +32,9 @@ DEVICE=${2:-"cuda:3"}
 PROJ_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJ_DIR"
 
-PDB_TRAIN="data/dpo/representative_pdbs/train"
-PDB_VALID="data/dpo/representative_pdbs/valid"
-PDB_TEST="data/dpo/representative_pdbs/test"
+PDB_TRAIN=${PDB_TRAIN:-"data/dpo/representative_pdbs/train"}
+PDB_VALID=${PDB_VALID:-"data/dpo/representative_pdbs/valid"}
+PDB_TEST=${PDB_TEST:-"data/dpo/representative_pdbs/test"}
 
 TRAIN_PAIRS="data/dpo/train_pairs.pt"
 VAL_PAIRS="data/dpo/val_pairs.pt"
@@ -44,6 +44,7 @@ NUM_SAMPLES=12
 TEMPERATURE=0.5          # Used for both training pair generation AND evaluation
 PROAGG_CONFIG="configs/default.yaml"
 SEED=${SEED:-42}
+PROAGG_BATCH_SIZE=${PROAGG_BATCH_SIZE:-16}
 
 DPO_EPOCHS=10
 DPO_LR=1e-5
@@ -70,6 +71,7 @@ python src/dpo/sample_and_score.py \
     --output "$TRAIN_PAIRS" \
     --num_samples "$NUM_SAMPLES" \
     --temperature "$TEMPERATURE" \
+    --proagg_batch_size "$PROAGG_BATCH_SIZE" \
     --device "$DEVICE" \
     --seed "$SEED"
 
@@ -84,6 +86,7 @@ python src/dpo/sample_and_score.py \
     --output "$VAL_PAIRS" \
     --num_samples "$NUM_SAMPLES" \
     --temperature "$TEMPERATURE" \
+    --proagg_batch_size "$PROAGG_BATCH_SIZE" \
     --device "$DEVICE" \
     --seed "$SEED"
 
@@ -121,6 +124,7 @@ python src/dpo/evaluate.py \
     --output "$DPO_OUTPUT/eval_results.json" \
     --num_samples "$NUM_SAMPLES" \
     --temperature "$TEMPERATURE" \
+    --proagg_batch_size "$PROAGG_BATCH_SIZE" \
     --device "$DEVICE" \
     --seed "$SEED"
 

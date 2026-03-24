@@ -302,3 +302,150 @@ The strongest next candidate is:
 - tail-aware pair weighting
 - applied only inside ranking loss
 - likely using `-3.0` or `-3.5` as the first threshold to test
+
+## Validation-Only Comparison of `version_25`, `version_29`, and `version_37`
+
+This section is the strict validation-side comparison of the three most important checkpoints so far.
+It is intended to answer one specific question:
+
+- if we ignore test results completely, which version should we trust as the best candidate?
+
+### Compared Checkpoints
+
+- `version_25`
+  `results/lightning_logs/version_25/checkpoints/best_epoch=08_val_spearman=0.7613.ckpt`
+- `version_29`
+  `results/lightning_logs/version_29/checkpoints/best_epoch=08_val_spearman=0.7584.ckpt`
+- `version_37`
+  `results/lightning_logs/version_37/checkpoints/best_epoch=07_val_spearman=0.7582.ckpt`
+
+### Overall Validation Metrics
+
+| version | val_spearman | val_pearson | val_mae | val_mse |
+|---------|--------------|-------------|---------|---------|
+| `25` | `0.761268` | `0.761313` | `0.506163` | `0.505429` |
+| `29` | `0.758393` | `0.765299` | `0.497785` | `0.498131` |
+| `37` | `0.758187` | `0.764629` | `0.505994` | `0.504661` |
+
+Interpretation:
+
+- If selection uses only `val_spearman`, `version_25` is still the winner.
+- If selection cares about overall numerical fit, `version_29` is stronger.
+- `version_37` does not clearly dominate on validation, even though it later produced the best observed test result.
+
+### Validation Tail Metrics
+
+For the broad negative tail `target <= -3.0`:
+
+| version | n | mae | bias | pred_mean | target_mean |
+|---------|---|-----|------|-----------|-------------|
+| `25` | `66` | `1.3987` | `+1.3935` | `-2.2364` | `-3.6299` |
+| `29` | `66` | `1.4079` | `+1.4058` | `-2.2241` | `-3.6299` |
+| `37` | `66` | `1.4004` | `+1.3977` | `-2.2322` | `-3.6299` |
+
+For the sharper negative tail `target <= -3.5`:
+
+| version | n | mae | bias | pred_mean | target_mean |
+|---------|---|-----|------|-----------|-------------|
+| `25` | `29` | `1.8760` | `+1.8760` | `-2.2900` | `-4.1660` |
+| `29` | `29` | `1.9049` | `+1.9049` | `-2.2611` | `-4.1660` |
+| `37` | `29` | `1.8982` | `+1.8982` | `-2.2678` | `-4.1660` |
+
+Interpretation:
+
+- None of these versions truly fixes the hardest aggregation-prone tail.
+- `version_29` and `version_37` improved other aspects of validation behavior, but not this tail.
+- So any future improvement that claims to solve hard cases should be checked against these exact tail numbers first.
+
+### Validation Large-Gap Ranking Error
+
+Using sampled validation pairs with `|y_i - y_j| > 1.5`:
+
+| version | wrong_pairs | total_pairs | error_rate |
+|---------|-------------|-------------|------------|
+| `25` | `1078` | `20043` | `0.053784` |
+| `29` | `1055` | `20043` | `0.052637` |
+| `37` | `1066` | `20043` | `0.053186` |
+
+Interpretation:
+
+- `version_29` is best on this metric.
+- This is important because `version_29` was the first clear proof that gap-aware ranking improved validation structure beyond plain `val_spearman`.
+- `version_37` kept most of that gain, but did not improve it further on validation.
+
+### Validation Bin-Level Error
+
+MAE by target bin:
+
+| target bin | `version_25` | `version_29` | `version_37` |
+|------------|--------------|--------------|--------------|
+| `<= -3` | `1.3987` | `1.4079` | `1.4004` |
+| `-3 ~ -2` | `0.6920` | `0.6940` | `0.6821` |
+| `-2 ~ -1` | `0.5253` | `0.5510` | `0.5539` |
+| `-1 ~ 0` | `0.4076` | `0.4009` | `0.4182` |
+| `0 ~ 1.04` | `0.4213` | `0.3866` | `0.3935` |
+
+Bias by target bin:
+
+| target bin | `version_25` | `version_29` | `version_37` |
+|------------|--------------|--------------|--------------|
+| `<= -3` | `+1.3935` | `+1.4058` | `+1.3977` |
+| `-3 ~ -2` | `+0.5749` | `+0.5984` | `+0.5841` |
+| `-2 ~ -1` | `+0.0333` | `+0.0948` | `+0.0861` |
+| `-1 ~ 0` | `-0.1320` | `-0.0581` | `-0.0433` |
+| `0 ~ 1.04` | `-0.2650` | `-0.2562` | `-0.2204` |
+
+Interpretation:
+
+- `version_29` is best in the positive bin and on large-gap ranking.
+- `version_37` is best in the `-3 ~ -2` bin and improves positive-side shrinkage bias.
+- `version_25` remains the cleanest pure `val_spearman` checkpoint.
+- The main unresolved weakness across all three versions is still the very negative tail.
+
+## Why Validation Selection and Test Best Diverged
+
+This is the key methodological issue exposed by the experiments:
+
+- `version_25` is the best validation checkpoint if we monitor only `val_spearman`.
+- `version_37` is the best observed test result.
+- These are not the same answer.
+
+The likely reasons are:
+
+1. `val_spearman` is too narrow as a single selection criterion.
+   It does not fully reflect tail MAE, large-gap pair ordering, or overall numerical fit.
+
+2. We have tuned many times on one fixed validation split.
+   Even without directly using test-set errors, repeated hyperparameter exploration can overfit the validation split composition.
+
+3. Different changes improve different parts of the task.
+   `version_29` and `version_37` improved gap-sensitive ranking and some boundary regions, but those gains were not fully captured by the single highest `val_spearman`.
+
+4. Peak checkpoint selection is noisy in the current plateau regime.
+   When differences are on the order of `0.001`, a single best epoch can be a noisy peak rather than the most reliable generalization point.
+
+## Recommended Validation-Side Selection Rule
+
+For future experiments, model selection should not be based only on `val_spearman`.
+At minimum, each candidate should be compared on this validation checklist:
+
+- `val_spearman`
+- `val_pearson`
+- `val_mae`
+- `val` large-gap pair error rate
+- `val` tail MAE at `target <= -3.0`
+- `val` tail MAE at `target <= -3.5`
+
+Operationally:
+
+- use `val_spearman` as the primary ranking metric
+- reject candidates that improve only `test` but do not show a validation-side explanation
+- prefer candidates that improve either:
+  - `val_spearman` directly, or
+  - keep `val_spearman` roughly flat while clearly improving large-gap ranking and tail metrics
+
+Under this stricter rule:
+
+- `version_25` is still the strongest single-metric validation winner
+- `version_29` is the strongest validation-structure candidate
+- `version_37` is the strongest observed test candidate, but not yet a clean validation winner

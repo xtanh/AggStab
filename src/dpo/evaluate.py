@@ -140,6 +140,8 @@ def main():
                         help="Path to raw data CSV (for structural token lookup)")
     parser.add_argument("--max_pdbs", type=int, default=-1,
                         help="Max PDBs to evaluate (-1 for all)")
+    parser.add_argument("--proagg_batch_size", type=int, default=8,
+                        help="Batch size for ProAgg scoring during evaluation")
     parser.add_argument("--device", type=str, default="cuda:3")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for subset selection and sampling")
@@ -180,6 +182,7 @@ def main():
         original_results = evaluate_model(
             original_model, proagg_model, pdb_files, struct_lookup, tokenizer,
             num_samples=args.num_samples, temperature=args.temperature,
+            proagg_batch_size=args.proagg_batch_size,
             device=device,
             seed=args.seed,
     )
@@ -197,6 +200,7 @@ def main():
         dpo_results = evaluate_model(
             dpo_model, proagg_model, pdb_files, struct_lookup, tokenizer,
             num_samples=args.num_samples, temperature=args.temperature,
+            proagg_batch_size=args.proagg_batch_size,
             device=device,
             seed=args.seed,
         )
