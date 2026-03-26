@@ -63,6 +63,48 @@ def sequence_diversity(sequences):
     return total / max(count, 1)
 
 
+def protein_name_from_pdb_path(pdb_path):
+    pdb_file = os.path.basename(pdb_path)
+    return pdb_file.replace("_ranked_0.pdb", "").replace(".pdb", "")
+
+
+def load_cached_original_results(cache_path, requested_names):
+    with open(cache_path) as f:
+        cached = json.load(f)
+
+    if "original" in cached:
+        original_results = cached["original"]
+    else:
+        original_results = cached
+
+    cached_names = [item["pdb_name"] for item in original_results]
+    if cached_names != requested_names:
+        raise ValueError(
+            "Cached original results do not match requested PDB set. "
+            f"cache_path={cache_path} requested={len(requested_names)} cached={len(cached_names)}"
+        )
+    return original_results
+
+
+def save_cached_original_results(cache_path, original_results, args, requested_names):
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    payload = {
+        "original": original_results,
+        "cache_args": {
+            "pdb_dir": args.pdb_dir,
+            "original_mpnn_ckpt": args.original_mpnn_ckpt,
+            "num_samples": args.num_samples,
+            "temperature": args.temperature,
+            "max_pdbs": args.max_pdbs,
+            "seed": args.seed,
+            "device": args.device,
+        },
+        "pdb_names": requested_names,
+    }
+    with open(cache_path, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
 def evaluate_model(
     mpnn_model, proagg_model, pdb_files, struct_lookup, tokenizer,
     stab_model=None, stab_tokenizer=None, stab_output_key="deltaG",
@@ -74,8 +116,7 @@ def evaluate_model(
     results = []
 
     for pi, pdb_path in enumerate(pdb_files):
-        pdb_file = os.path.basename(pdb_path)
-        protein_name = pdb_file.replace("_ranked_0.pdb", "")
+        protein_name = protein_name_from_pdb_path(pdb_path)
         print(f"  [{pi+1}/{len(pdb_files)}] {protein_name}", flush=True)
 
         if protein_name not in struct_lookup:
@@ -163,6 +204,14 @@ def main():
     parser.add_argument("--device", type=str, default="cuda:3")
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed for subset selection and sampling")
+    parser.add_argument(
+        "--original_results_cache",
+        type=str,
+        default=None,
+        help="Optional JSON cache for ORIGINAL ProteinMPNN results. "
+             "If the file exists, reuse it instead of recomputing baseline. "
+             "If it does not exist, compute baseline once and save it there.",
+    )
     args = parser.parse_args()
 
     device = args.device
@@ -200,24 +249,38 @@ def main():
         pdb_files = [pdb_files[i] for i in sorted(idx)]
         print(f"Selected {len(pdb_files)} PDBs for evaluation")
 
+    requested_names = [protein_name_from_pdb_path(p) for p in pdb_files]
+
     # --- Evaluate original ProteinMPNN ---
     print("=" * 60)
     print("Evaluating ORIGINAL ProteinMPNN")
     print("=" * 60)
-    original_model = load_mpnn_model(
-        checkpoint_path=args.original_mpnn_ckpt, device=device,
-    )
-    with torch.no_grad():
-        original_results = evaluate_model(
-            original_model, proagg_model, pdb_files, struct_lookup, tokenizer,
-            stab_model=stab_model, stab_tokenizer=stab_tokenizer,
-            num_samples=args.num_samples, temperature=args.temperature,
-            proagg_batch_size=args.proagg_batch_size,
-            device=device,
-            seed=args.seed,
-    )
-    del original_model
-    torch.cuda.empty_cache()
+    if args.original_results_cache and os.path.exists(args.original_results_cache):
+        print(f"Reusing cached ORIGINAL results from {args.original_results_cache}")
+        original_results = load_cached_original_results(args.original_results_cache, requested_names)
+    else:
+        original_model = load_mpnn_model(
+            checkpoint_path=args.original_mpnn_ckpt, device=device,
+        )
+        with torch.no_grad():
+            original_results = evaluate_model(
+                original_model, proagg_model, pdb_files, struct_lookup, tokenizer,
+                stab_model=stab_model, stab_tokenizer=stab_tokenizer,
+                num_samples=args.num_samples, temperature=args.temperature,
+                proagg_batch_size=args.proagg_batch_size,
+                device=device,
+                seed=args.seed,
+            )
+        del original_model
+        torch.cuda.empty_cache()
+        if args.original_results_cache:
+            save_cached_original_results(
+                args.original_results_cache,
+                original_results,
+                args,
+                requested_names,
+            )
+            print(f"Saved ORIGINAL results cache to {args.original_results_cache}")
 
     # --- Evaluate DPO-finetuned ProteinMPNN ---
     print("\n" + "=" * 60)
@@ -278,3 +341,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
