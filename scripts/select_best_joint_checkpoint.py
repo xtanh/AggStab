@@ -60,7 +60,8 @@ def build_analyze_command(eval_json, epoch_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate all epoch checkpoints on validation and select best checkpoint.")
-    parser.add_argument("--ckpt_dir", required=True, help="Directory containing mpnn_dpo_epoch*.pt")
+    parser.add_argument("--ckpt_dir", required=True, help="Directory containing epoch checkpoints")
+    parser.add_argument("--ckpt_glob", default="mpnn_dpo_epoch*.pt", help="Glob for epoch checkpoints inside ckpt_dir")
     parser.add_argument("--pdb_dir", required=True, help="Validation PDB directory")
     parser.add_argument("--agg_ckpt", required=True)
     parser.add_argument("--agg_config", default="configs/proagg_final_candidate.yaml")
@@ -89,7 +90,7 @@ def main():
     args = parser.parse_args()
 
     ckpts = sorted(
-        glob.glob(os.path.join(args.ckpt_dir, "mpnn_dpo_epoch*.pt")),
+        glob.glob(os.path.join(args.ckpt_dir, args.ckpt_glob)),
         key=checkpoint_epoch,
     )
     if not ckpts:

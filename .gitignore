@@ -6,3 +6,12 @@ __pycache__/
 *.pt
 *.json
 *.pdf
+nohup.out
+.mcp/
+.claude/
+.vscode/
+index.html
+tep.txt
+ensemble_v22_v24.txt
+test_mc_dropout.py
+BEST_MODEL.md
