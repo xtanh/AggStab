@@ -1,0 +1,53 @@
+data_dir: /home/xy_th/Project_protein_aggregation/data/rocklin
+
+model:
+  model_name: proagg_mlp_v24
+  saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
+
+
+  # LoRA configuration
+  lora:
+    enabled: true
+    r: 4
+    alpha: 8
+    dropout: 0.2
+    target_modules: ["query", "key", "value"]
+
+train:
+  save_dir: results/
+  lr: 1e-4
+  lora_lr: 5e-5
+  weight_decay: 0.3
+  batch_size: 32
+  num_workers: 4
+  patience: 3
+  epochs: 30
+  gradient_clip_val: 0.5
+
+  monitor_metric: val_loss
+  use_scheduler: true
+  scheduler:
+    name: ReduceLROnPlateau
+    mode: min
+    factor: 0.5
+    patience: 3
+    min_lr: 1e-7
+
+  # Training losses
+  mse_weight: 1.0
+  ranking_weight: 1.0
+  ranking_margin: 0.3
+  ranking_pair_weighting: gap
+  ranking_gap_scale: 1.0
+  ranking_pair_clip: 4.0
+
+  # Contrastive learning (continuous weighting only)
+  cl_weight: 2.0
+  cl_temperature: 0.1
+  cl_pos_sigma: 1.0    # Positive weight decay (smaller = sharper peak at 0)
+  cl_neg_sigma: 1.0    # Negative weight rise (larger = smoother transition)
+
+hardware:
+  accelerator: gpu
+  devices: [0]
+  precision: 16

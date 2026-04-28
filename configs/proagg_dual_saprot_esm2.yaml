@@ -1,0 +1,43 @@
+data_dir: /home/xy_th/Project_protein_aggregation/data/rocklin
+
+model:
+  model_name: proagg_mlp_v23
+  saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
+  esm2_path: /home/xy_th/.cache/huggingface/hub/models--facebook--esm2_t12_35M_UR50D/snapshots/6fbf070e65b0b7291e7bbcd451118c216cff79d8
+  esm2_trainable: false
+  fusion_dim: 256
+  lora:
+    enabled: true
+    r: 4
+    alpha: 8
+    dropout: 0.2
+    target_modules: ["query", "key", "value"]
+
+train:
+  save_dir: results/
+  lr: 1e-4
+  lora_lr: 5e-5
+  weight_decay: 0.3
+  batch_size: 16
+  num_workers: 4
+  patience: 3
+  epochs: 30
+  gradient_clip_val: 0.5
+
+  monitor_metric: val_spearman
+  use_scheduler: true
+  scheduler:
+    name: ReduceLROnPlateau
+    mode: max
+    factor: 0.5
+    patience: 3
+    min_lr: 1e-7
+
+  mse_weight: 1.0
+  ranking_weight: 1.0
+  ranking_margin: 0.3
+
+hardware:
+  accelerator: gpu
+  devices: [0]
+  precision: 16

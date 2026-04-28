@@ -1,0 +1,41 @@
+data_dir: /home/xy_th/Project_protein_aggregation/data/rocklin
+
+model:
+  model_name: proagg_mlp_v24
+  saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
+  latent_dim: 128
+  lora:
+    enabled: true
+    r: 4
+    alpha: 8
+    dropout: 0.2
+    target_modules: ["query", "key", "value"]
+
+train:
+  save_dir: results/
+  lr: 1e-4
+  lora_lr: 5e-5
+  weight_decay: 0.3
+  batch_size: 32
+  num_workers: 4
+  patience: 3
+  epochs: 30
+  gradient_clip_val: 0.5
+  monitor_metric: val_spearman
+  use_scheduler: true
+  scheduler:
+    name: ReduceLROnPlateau
+    mode: max
+    factor: 0.5
+    patience: 3
+    min_lr: 1e-7
+  init_checkpoint: "/home/xy_th/Project_protein_aggregation/results/lightning_logs/version_75/checkpoints/best_epoch=07_val_spearman=0.7619.ckpt"
+  mse_weight: 1.0
+  ranking_weight: 1.0
+  ranking_margin: 0.3
+  cl_weight: 0.0
+
+hardware:
+  accelerator: gpu
+  devices: [0]
+  precision: 16

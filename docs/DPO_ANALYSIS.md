@@ -200,3 +200,88 @@ python scripts/analyze_dpo_eval.py \
 2. **增大 num_samples**：从 12 增加到 32-64，得到更大 score 区间和更可靠的 pairs
 3. **温度退火**：训练初期用高 T 保留多样性，后期降温精细化
 4. **RLHF / PPO**：直接用 ProAgg 作为在线 reward，而非 DPO 的离线 preference
+
+---
+
+## 七、当前瓶颈复盘（基于 v1/v2 结果）
+
+> 本节为 2026-03-10 补充：结合 `results/dpo/` 与 `results/dpo_v2/` 的实际评测产物，总结目前最主要的瓶颈与下一步实验优先级。
+
+### 7.1 现象：`ProAgg mean` 变好，但 `ProAgg max@N` 变差
+
+以 `results/dpo_v2/dpo_eval_report.txt` 为例（评估温度与训练对齐为 T=0.5）：
+
+- `ProAgg mean`：orig=-0.2633 → dpo=-0.1232（+0.1401），60.1% backbones 提升
+- `ProAgg max@N`：orig=0.1142 → dpo=-0.0815（-0.1957），仅 7.6% backbones 提升
+- `Diversity`：orig=0.5175 → dpo=0.0434（-0.4741）
+
+这说明 DPO 训练把“平均水平”推上去了，但“采样后挑最优”的能力（max@N）显著下降。
+
+### 7.2 根因候选（优先级从高到低）
+
+**根因 A（P0）：训练目标与使用方式不匹配（mean vs. max-of-N）**
+
+实际使用通常是：对同一 backbone 采样 N 条序列，取 `ProAgg max` 作为最终候选（best-of-N）。但 DPO 训练的监督来自离线 preference pairs 的排序约束（winner/loser），它优化的是“对固定候选的相对偏好”，并不直接优化“采样分布的尾部质量（tail）”。
+
+当 policy 分布变得更尖、更集中时：
+- `ProAgg mean` 可能上升（因为集中到一类“平均更安全”的序列）
+- 但 tail 消失 → `ProAgg max@N` 会明显变差
+
+**根因 B（P0）：分布变尖导致多样性崩溃（mode collapse / near-collapse）**
+
+v2 的 diversity 大幅降低，且 `n_unique` 并非恒为 1，而是出现“很多序列只差少量位点”的现象（Hamming 距离很小）。这会显著降低 best-of-N 的收益：即便 N 不小，等效探索空间也很小。
+
+**根因 C（P1）：`beta` 在当前实现中的含义易被误解**
+
+在本 repo 的 `src/dpo/dpo_train.py` 实现中，`beta` 出现在：
+
+> `loss = -logsigmoid(beta * (log_ratio_w - log_ratio_l))`
+
+因此 **beta 越大，偏好信号的梯度越强**（对 winner/loser 的拉开越激进）。它并不是一个“显式 KL 系数”。
+
+如果把 beta 当成“更保守/更强 KL”而单调增大，可能会更容易把 policy 推向更尖的分布，进一步损害 diversity 与 max@N。
+
+### 7.3 当前采样策略/温度/N/beta 是否合理？
+
+以 `scripts/run_dpo_pipeline.sh` 的默认设置为准：
+
+- 训练对生成：`N=12`，`T=0.5`
+- 评估：`N=12`，`T=0.5`（已对齐训练温度）
+- 训练：`beta=0.5`，并在训练时对 pairs 做 `score_gap_delta=0.05` 过滤
+
+**结论（现阶段）：用于“快速验证 pipeline 是否能跑通”是合理的，但用于追求 `ProAgg max@N` 并不理想。**
+
+原因与建议如下：
+
+1) **N=12：偏小，且会限制 pair 的信息量与 score gap 上限**
+   - N=12 时，每个 backbone 最多 6 个 rank-aligned pairs，且 winner/loser 之间 gap 往往不够大；
+   - 若目标是 max@N（best-of-N），通常应把 N 增加到 32 或 64，才能让 tail 有机会出现并产生可学习的偏好差异。
+
+2) **T=0.5：对 MPNN 采样探索是合理的默认值**
+   - T 太低（如 0.1）会显著降低 diversity，使评估退化为近似贪心，best-of-N 失效；
+   - 但 T 太高会引入明显低可设计性序列（logprob 变差），需要在 `T=0.3~0.8` 之间做 sweep，并结合 `n_unique`/diversity 与 `MPNN logprob` 一起看。
+
+3) **beta=0.5：需要回到“实现语义”重新判断是否合理**
+   - 在当前实现里，beta 主要是偏好梯度强度旋钮；
+   - 若观察到 diversity 明显下降且 max@N 变差，优先尝试 **降低 beta**（例如 0.01、0.05、0.1）来减弱过度排序拉开带来的分布变尖。
+
+### 7.4 下一步实验优先级（建议从这里开始）
+
+**优先级 1：把 checkpoint 选择指标对齐到 max@N 与 diversity**
+
+仅用离线 `val_loss/val_accuracy` 保存 best checkpoint，可能会系统性偏向“分布更尖、排序更强”的模型。建议在训练中增加轻量的在线评估：
+- 每个 epoch 在一小撮 valid backbones 上采样（例如 50 个）
+- 记录 `ProAgg max@N`、`ProAgg mean`、`diversity@N`、`MPNN logprob`
+- 用 `max@N`（或 `max@N - λ * collapse_penalty`）挑 best ckpt
+
+**优先级 2：beta sweep + N sweep（最直接验证“分布变尖”假说）**
+
+固定其它不变：
+- beta: {0.01, 0.05, 0.1, 0.2, 0.5}
+- N（评估用）: {12, 32, 64}
+
+观察：`max@N` 是否随 beta 下降回升、是否随 N 增加回升，以及 diversity 的变化。
+
+**优先级 3：online DPO（刷新 pairs，缓解 off-policy）**
+
+每 1-2 个 epoch 用当前 policy 在一部分 backbones 上重新采样与打分，更新 pairs（可只更新一部分以控成本），通常会比长期使用旧 pairs 更稳。
