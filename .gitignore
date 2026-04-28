@@ -15,3 +15,7 @@ tep.txt
 ensemble_v22_v24.txt
 test_mc_dropout.py
 BEST_MODEL.md
+.codex
+benchmarks/
+results.svg
+results_property_summary.csv

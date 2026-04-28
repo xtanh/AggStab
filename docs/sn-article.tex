@@ -1,0 +1,456 @@
+%Version 3.1 December 2024
+% See section 11 of the User Manual for version history
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                                                 %%
+%% Please do not use \input{...} to include other tex files.       %%
+%% Submit your LaTeX manuscript as one .tex document.              %%
+%%                                                                 %%
+%% All additional figures and files should be attached             %%
+%% separately and not embedded in the \TeX\ document itself.       %%
+%%                                                                 %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%\documentclass[referee,sn-basic]{sn-jnl}% referee option is meant for double line spacing
+
+%%=======================================================%%
+%% to print line numbers in the margin use lineno option %%
+%%=======================================================%%
+
+%%\documentclass[lineno,pdflatex,sn-basic]{sn-jnl}% Basic Springer Nature Reference Style/Chemistry Reference Style
+
+%%=========================================================================================%%
+%% the documentclass is set to pdflatex as default. You can delete it if not appropriate.  %%
+%%=========================================================================================%%
+
+%%\documentclass[sn-basic]{sn-jnl}% Basic Springer Nature Reference Style/Chemistry Reference Style
+
+%%Note: the following reference styles support Namedate and Numbered referencing. By default the style follows the most common style. To switch between the options you can add or remove "Numbered" in the optional parenthesis. 
+%%The option is available for: sn-basic.bst, sn-chicago.bst%  
+ 
+%%\documentclass[pdflatex,sn-nature]{sn-jnl}% Style for submissions to Nature Portfolio journals
+%%\documentclass[pdflatex,sn-basic]{sn-jnl}% Basic Springer Nature Reference Style/Chemistry Reference Style
+\documentclass[pdflatex,sn-mathphys-num]{sn-jnl}% Math and Physical Sciences Numbered Reference Style
+%%\documentclass[pdflatex,sn-mathphys-ay]{sn-jnl}% Math and Physical Sciences Author Year Reference Style
+%%\documentclass[pdflatex,sn-aps]{sn-jnl}% American Physical Society (APS) Reference Style
+%%\documentclass[pdflatex,sn-vancouver-num]{sn-jnl}% Vancouver Numbered Reference Style
+%%\documentclass[pdflatex,sn-vancouver-ay]{sn-jnl}% Vancouver Author Year Reference Style
+%%\documentclass[pdflatex,sn-apa]{sn-jnl}% APA Reference Style
+%%\documentclass[pdflatex,sn-chicago]{sn-jnl}% Chicago-based Humanities Reference Style
+
+%%%% Standard Packages
+%%<additional latex packages if required can be included here>
+
+\usepackage{graphicx}%
+\usepackage{multirow}%
+\usepackage{amsmath,amssymb,amsfonts}%
+\usepackage{amsthm}%
+\usepackage{mathrsfs}%
+\usepackage[title]{appendix}%
+\usepackage{xcolor}%
+\usepackage{textcomp}%
+\usepackage{manyfoot}%
+\usepackage{booktabs}%
+\usepackage[utf8]{inputenc}
+\usepackage{textgreek}
+\usepackage{algorithm}%
+\usepackage{algorithmicx}%
+\usepackage{algpseudocode}%
+\usepackage{listings}%
+\usepackage{geometry}%
+\usepackage{placeins} % 在导言区
+\usepackage{threeparttable} % 导言区引入
+
+%%%%
+
+%%%%%=============================================================================%%%%
+%%%%  Remarks: This template is provided to aid authors with the preparation
+%%%%  of original research articles intended for submission to journals published 
+%%%%  by Springer Nature. The guidance has been prepared in partnership with 
+%%%%  production teams to conform to Springer Nature technical requirements. 
+%%%%  Editorial and presentation requirements differ among journal portfolios and 
+%%%%  research disciplines. You may find sections in this template are irrelevant 
+%%%%  to your work and are empowered to omit any such section if allowed by the 
+%%%%  journal you intend to submit to. The submission guidelines and policies 
+%%%%  of the journal take precedence. A detailed User Manual is available in the 
+%%%%  template package for technical guidance.
+%%%%%=============================================================================%%%%
+
+%% as per the requirement new theorem styles can be included as shown below
+\theoremstyle{thmstyleone}%
+\newtheorem{theorem}{Theorem}%  meant for continuous numbers
+%%\newtheorem{theorem}{Theorem}[section]% meant for sectionwise numbers
+%% optional argument [theorem] produces theorem numbering sequence instead of independent numbers for Proposition
+\newtheorem{proposition}[theorem]{Proposition}% 
+%%\newtheorem{proposition}{Proposition}% to get separate numbers for theorem and proposition etc.
+
+\theoremstyle{thmstyletwo}%
+\newtheorem{example}{Example}%
+\newtheorem{remark}{Remark}%
+
+\theoremstyle{thmstylethree}%
+\newtheorem{definition}{Definition}%
+
+\geometry{
+  a4paper,
+  left=3cm, right=3cm, top=2.5cm, bottom=2.5cm,
+  twoside=false
+}%
+
+\raggedbottom
+%%\unnumbered% uncomment this for unnumbered level heads
+\begin{document}
+
+\title[Short Title]{Structure-conditioned sequence design for joint aggregation resistance and stability}
+
+\author[1,2]{\fnm{Hong} \sur{Tan}}\email{tanhong818@sjtu.edu.cn}
+
+\author[1,2,3]{\fnm{Shenggeng} \sur{Lin}}\email{linsg4521@sjtu.edu.cn}
+
+% \author[1,2]{\fnm{Heqi} \sur{Sun}}\email{tanhong818@sjtu.edu.cn}
+
+\author*[1,2,3]{\fnm{Yi} \sur{Xiong}}\email{xiongyi@sjtu.edu.cn}
+
+\affil[1]{%
+  \orgdiv{State Key Laboratory of Microbial Metabolism, School of Life Sciences and Biotechnology},%
+  \orgname{Shanghai Jiao Tong University},%
+  \orgaddress{\city{Shanghai}, \country{China}}%
+}
+
+\affil[2]{%
+  \orgdiv{Zhangjiang Institute for Advanced Study},%
+  \orgname{Shanghai Jiao Tong University},%
+  \orgaddress{\city{Shanghai}, \country{China}}%
+}
+
+\affil[3]{%
+  \orgdiv{Shanghai Innovation Institute},%
+  \orgaddress{\city{Shanghai}, \country{China}}%
+}
+
+\abstract{Computational protein design has advanced rapidly, yet aggregation resistance remains a primary developability bottleneck that lies outside the scope of structure-conditioned sequence generation. Existing inverse-folding methods optimize compatibility with a target backbone, and variants such as SolubleMPNN target solubility, but none explicitly address stress-induced aggregation. Recent large-scale stress-aggregation data further reveal that aggregation resistance and folding stability are not naturally aligned, and can even move in opposite directions under thermal stress. Consequently, optimizing either property in isolation risks regressing on the other. Here we introduce AggStab, a multi-objective preference-alignment framework that jointly optimizes aggregation resistance and folding stability under a fixed backbone. AggStab treats inverse folding as a preference-learning problem, using backbone-conditioned reward models for both properties to align the generator through semi-online preference optimization. Benchmarked against ProteinMPNN, SolubleMPNN, and ESM-IF, AggStab is the only method that improves both properties simultaneously. Under a stringent structure-aware evaluation, AggStab also yields the highest fraction of designs that improve aggregation resistance, improve stability, and preserve wild-type-like fold quality. AggStab establishes aggregation-aware inverse folding as a tractable design objective, and its multi-objective preference alignment strategy generalizes to other settings where developability properties trade off.}
+
+\maketitle
+
+\section{Introduction}\label{sec1}
+
+Protein aggregation remains a major developability constraint in protein engineering. It lowers soluble yield, compromises activity and storage stability, and complicates manufacturing. For globular proteins, aggregation is also difficult to control because it depends not only on sequence, but also on structural context, folding energetics, and environmental stress. Recent large-scale measurements further show that no single factor, such as hydrophobicity, charge, predicted aggregation-prone regions, or folding stability, is sufficient to explain stress-induced aggregation across diverse domains. Aggregation is therefore an important objective for protein design, but not one that can be reduced to a single simple heuristic.
+
+This difficulty is reflected in the current computational landscape. Classical tools such as TANGO, AGGRESCAN, Zyggregator, and CamSol are useful for identifying aggregation-prone regions, and newer learned predictors capture richer sequence--structure relationships. However, these methods are primarily predictive. On the generative side, inverse-folding models such as ESM-IF and ProteinMPNN can design sequences for a fixed backbone with high structural fidelity, and recent alignment-based extensions have shown that such generators can be steered toward properties such as solubility or fitness. What is still missing is a structure-conditioned design framework that treats aggregation resistance itself as an explicit optimization target.
+
+Aggregation resistance is not redundant with other developability objectives. A protein can be soluble yet still aggregate under stress, and a stable protein is not necessarily aggregation resistant. Indeed, large-scale stress-aggregation data indicate that aggregation resistance and folding stability can even move in opposite directions under thermal stress. This creates a practical design problem: optimizing only one property can regress the other. A useful method must therefore optimize aggregation resistance and stability jointly, while preserving compatibility with the target backbone.
+
+Here we present AggStab, a multi-objective preference-alignment framework for aggregation-aware inverse folding. We train backbone-conditioned surrogate models for aggregation resistance and folding stability, use them to construct structure-aware preference pairs from sampled candidates, and align the generator through a semi-online optimization procedure that refreshes preferences as the policy changes. Benchmarked against ProteinMPNN, SolubleMPNN, and ESM-IF, AggStab is the only method that consistently improves both properties at once. More broadly, it provides a practical template for introducing competing developability objectives into structure-conditioned protein design.
+
+\section{Results}\label{sec2}
+\subsection{Overview of the joint optimization framework}
+We developed AggStab, a semi-online joint DPO framework for protein design with improved aggregation resistance and stability (Figure~\ref{fig:framework}a). In each round, ProteinMPNN samples candidate sequences from a given backbone, and these candidates are scored by a reward model that jointly evaluates the two target properties. The scored sequences are then converted into preference pairs for DPO training. Unlike a fixed offline procedure, AggStab is semi-online: after each training round, the updated generator is used to resample new candidates, which are then rescored and repaired for the next round. This iterative refresh of preference data progressively shifts the model toward more desirable regions of sequence space.
+
+\FloatBarrier
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=1.0\textwidth]{figs/overview.pdf}
+  \caption{Overview of AggStab, a semi-online joint DPO framework for protein design with improved aggregation resistance and stability. (a) Schematic illustration of the AggStab pipeline. Given a protein backbone, ProteinMPNN samples candidate sequences, which are then evaluated by a reward model jointly scoring aggregation resistance and stability. Based on these scores, preference pairs are constructed for direct preference optimization (DPO) to fine-tune ProteinMPNN. The framework is semi-online because, after each round of training, the updated ProteinMPNN is used to resample sequences for the next round of scoring and preference construction. (b) Data curation process for training the two regression models used in the reward model. A total of 13,853 sequences were clustered into 6,754 clusters and split into training, validation, and test sets. Because the label distributions are long-tailed, the training and validation sets were further sampled before model training; details are provided in Methods. (c) Architecture of the reward model. Two SaProt-based regression models were trained separately to predict aggregation and stability scores, respectively. Together, these two predictors constitute the reward model used in the AggStab pipeline. Detailed architectures are shown in Supplementary Fig.~1. (d) Joint preference pairing strategy for multi-objective optimization. Among sampled candidate sequences, sequences jointly favored in aggregation resistance and stability are retained as preferred examples, and preference pairs are constructed from the resulting candidate pool to supervise DPO training.}
+  \label{fig:framework}
+  \end{figure}
+
+
+\FloatBarrier
+
+The reward model was built from a curated dataset of 13,853 sequences, which were clustered into 6,754 clusters and split into training, validation, and test sets (9,774, 1,279, and 2,800 sequences, respectively; Figure~\ref{fig:framework}b). Because the label distributions are long-tailed, the training and validation sets were further sampled before regressor training, as described in Methods. We then trained two SaProt-based regressors, one for aggregation resistance and the other for stability, which together serve as the reward model in AggStab (Figure~\ref{fig:framework}c). Detailed architectures are provided in Supplementary Fig.~1.
+
+To enforce simultaneous improvement of both properties, we introduced a joint preference pairing strategy (Figure~\ref{fig:framework}d). Sampled sequences that improved both aggregation resistance and stability were retained as preferred examples, whereas other candidates were filtered out during preference construction. Preference pairs were then constructed from the resulting candidate pool to supervise DPO training. This design aligns model updates with the multi-objective optimization goal and discourages solutions that improve only one property.
+
+
+
+\subsection{Performance of the property predictors}
+\FloatBarrier
+
+To enable joint optimization of aggregation resistance and protein stability, we first established two supervised regression models based on experimentally derived datasets. The first model was trained to predict aggregation-related measurements, represented as $\log_2(\mathrm{fold\ change})$, where higher values indicate stronger resistance to aggregation. The second model was trained to predict protein stability using experimentally measured $\Delta G_{\mathrm{unfolding}}$ values obtained by cDNA display, in which larger values correspond to higher thermodynamic stability. As shown in Figure~\ref{fig:predictors}a,b, both properties exhibited broadly consistent distributions across the training, validation, and test sets, indicating that the data splits preserved the overall property landscape. The proteins in the dataset were predominantly short and spanned a relatively narrow length range (Figure~\ref{fig:predictors}c).
+
+Both regressors achieved strong predictive performance on the held-out test set. For aggregation resistance prediction, the model yielded a Pearson correlation coefficient (PCC) of 0.7462 and a Spearman correlation coefficient (SCC) of 0.7562 between predicted and experimentally measured $\log_2(\mathrm{fold\ change})$ values (Figure~\ref{fig:predictors}d). For stability prediction, the corresponding performance reached a PCC of 0.7406 and an SCC of 0.7065 for $\Delta G_{\mathrm{unfolding}}$ (Figure~\ref{fig:predictors}e). These results indicate that both models capture the underlying sequence--property relationships with sufficient accuracy to serve as surrogate objectives for downstream sequence optimization.
+
+We next examined the global relationship between aggregation resistance and stability across the dataset. Despite substantial variability, the two properties showed an overall negative association (PCC = -0.2245, SCC = -0.2105; Figure~\ref{fig:predictors}f), pointing to a trade-off between aggregation resistance and thermodynamic stability. Specifically, some proteins exhibited high stability but weak aggregation resistance, whereas others showed strong aggregation resistance at the expense of low stability. Representative examples of these two extremes are highlighted in Figure~\ref{fig:predictors}f and visualized structurally in Figure~\ref{fig:predictors}g,h. Together, these observations suggest that optimizing either property alone is unlikely to yield balanced designs, thereby motivating a multi-objective optimization framework that explicitly accounts for both aggregation resistance and stability.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figs/fig2_revise_2.pdf}
+\caption{Dataset characteristics, predictor performance, and the trade-off between aggregation resistance and stability. (a) Distribution of aggregation-related measurements across the training, validation, and test sets, represented as true $\log_2(\mathrm{fold\ change})$ values. Higher values indicate reduced aggregation propensity and thus stronger anti-aggregation behavior. (b) Distribution of stability measurements across the training, validation, and test sets, represented as experimentally measured $\Delta G_{\mathrm{unfolding}}$ values obtained by cDNA display. Larger $\Delta G_{\mathrm{unfolding}}$ values correspond to greater thermodynamic stability. (c) Length distribution of proteins included in the dataset. (d) Correlation between true and predicted $\log_2(\mathrm{fold\ change})$ on the test set, showing the predictive performance of the aggregation regressor. Pearson correlation coefficient (PCC) and Spearman correlation coefficient (SCC) are indicated. (e) Correlation between true and predicted $\Delta G_{\mathrm{unfolding}}$ on the test set, showing the predictive performance of the stability regressor. PCC and SCC are indicated. (f) Relationship between aggregation propensity and stability across the dataset, illustrating an overall trade-off between anti-aggregation behavior and thermodynamic stability. Proteins with high stability but strong aggregation tendency are highlighted by yellow stars, whereas proteins with low aggregation propensity but poor stability are highlighted by red stars. (g,h) Representative structures of the four highlighted proteins in (f). (g) Two highly stable yet aggregation-prone proteins. (h) Two aggregation-resistant but unstable proteins. Their experimentally measured $\Delta G_{\mathrm{unfolding}}$ and $\log_2(\mathrm{fold\ change})$ values are shown below each structure.}
+\label{fig:predictors}
+\end{figure}
+\FloatBarrier
+\subsection{Generated sequence properties}
+
+We next compared the sequence properties of designs generated by AggStab against three inverse-folding baselines: ESM-IF, ProteinMPNN, and SolubleMPNN. At the sequence-composition level, AggStab generated sequences with an amino-acid distribution distinct from that of all three baselines (Figure~\ref{fig:generated_properties}a). In particular, AggStab preferentially enriched glutamate (E), alanine (A), and lysine (K) relative to the baselines, consistent with a compositional shift toward charged and small residues that are generally associated with higher solubility and reduced aggregation propensity. This indicates that joint preference optimization reshaped the model's residue usage during design rather than leaving the underlying generation distribution unchanged.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figs/fig3_0422.pdf}
+\caption{AggStab shifts sequence composition and improves designed sequences in both aggregation resistance and stability. (a) Amino-acid frequencies in sequences generated by ESM-IF, ProteinMPNN, SolubleMPNN, and AggStab. AggStab preferentially enriches glutamate (E), alanine (A), and lysine (K). (b,c) Predicted aggregation resistance (b) and stability (c) of generated sequences. Aggregation resistance is represented as $\log_2(\mathrm{fold\ change})$, with higher values indicating lower aggregation propensity, whereas stability is represented as $\Delta G_{\mathrm{unfolding}}$, with higher values indicating greater thermodynamic stability. (d,e) Cluster-level mean aggregation resistance (d) and stability (e) across the test set. Each point denotes the average score of generated sequences within one cluster.}
+\label{fig:generated_properties}
+\end{figure}
+\FloatBarrier
+
+We then evaluated the generated sequences using the two SaProt-based predictors. AggStab achieved higher predicted aggregation-resistance scores than all three baselines (Figure~\ref{fig:generated_properties}b). Because higher $\log_2(\mathrm{fold\ change})$ values indicate stronger resistance to aggregation, this result indicates that AggStab more effectively shifts the generated sequences toward anti-aggregation regions of sequence space. Importantly, this gain did not come at the expense of stability. AggStab also produced sequences with consistently higher predicted $\Delta G_{\mathrm{unfolding}}$ values than ESM-IF, ProteinMPNN, and SolubleMPNN (Figure~\ref{fig:generated_properties}c). Together, these results indicate that AggStab improves both target properties simultaneously, whereas no baseline does so.
+
+To determine whether these gains were broadly distributed rather than driven by a small number of easy cases, we further analyzed performance at the cluster level. For each test-set cluster, we computed the mean predicted aggregation-resistance score and mean predicted stability score of the generated sequences. Across most clusters, AggStab achieved higher cluster-level mean $\log_2(\mathrm{fold\ change})$ values than all three baselines (Figure~\ref{fig:generated_properties}d), and a similar trend held for stability, with AggStab maintaining favorable cluster-level mean $\Delta G_{\mathrm{unfolding}}$ values across the majority of clusters (Figure~\ref{fig:generated_properties}e). These results show that the advantages of AggStab are not restricted to a few individual proteins, but instead generalize across diverse sequence clusters in the test set.
+
+\subsection{External validation with an independent stability predictor}
+
+To assess whether the stability improvements observed with our internal SaProt-based regressor generalize beyond the specific surrogate used during preference optimization, we re-evaluated the designed sequences using UniStab, an independent deep-learning predictor of $\Delta\Delta G$. UniStab differs from our internal regressor in both training data and modeling paradigm: it is supervised on experimentally measured $\Delta\Delta G$ values collected across single-point, multi-point, and indel mutations, and it infers stability effects by interrogating the latent structural representations of a pretrained folding trunk through low-rank adaptation, rather than from sequence--structure fused embeddings. UniStab therefore constitutes an out-of-distribution validator of the stability gains claimed in our internal evaluation.
+
+For each method and each test-set backbone, we retained the three sequences with the highest joint predicted scores, yielding $1{,}350 \times 3 = 4{,}050$ sequences per method. Each retained sequence was scored by UniStab against its wild-type reference; more negative $\Delta\Delta G_{\mathrm{UniStab}}$ values denote stronger stabilization, and we report the external stability gain $-\Delta\Delta G_{\mathrm{UniStab}}$ for interpretability (Figure~\ref{fig:external_predictor_result}).
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figs/fig5_external_predictor_result.pdf}
+  \caption{External validation of designed sequences with UniStab, an independent $\Delta\Delta G$ predictor. For each method, the top-3 sequences retained per test-set backbone (4{,}050 sequences in total, from 1{,}350 backbones $\times$ 3 sequences per backbone) were evaluated by UniStab against their wild-type references. External stability gain is defined as $-\Delta\Delta G_{\mathrm{UniStab}}$, so that larger values indicate stronger predicted stabilization. (a) Distribution of external stability gain across retained designs for each method; upward-shifted distributions correspond to sequences more frequently recognized as stabilizing by the independent model. (b) Fraction of designs classified as stabilizing by UniStab, defined as $\Delta\Delta G_{\mathrm{UniStab}} < 0$.}
+  \label{fig:external_predictor_result}
+\end{figure}
+\FloatBarrier
+
+Across the retained designs, AggStab yields the most favorable external stability gain distribution, with its mass clearly shifted toward stronger stabilization relative to all three baselines (Figure~\ref{fig:external_predictor_result}a). Binarizing the external predictions into stabilizing versus non-stabilizing at $\Delta\Delta G_{\mathrm{UniStab}} < 0$, AggStab attains the largest stabilizing fraction at $64.15\%$, compared with $57.09\%$ for ProteinMPNN and $55.85\%$ for SolubleMPNN, and substantially outperforms ESM-IF ($21.01\%$) (Figure~\ref{fig:external_predictor_result}b).
+
+Because UniStab shares neither training data nor architectural inductive biases with the SaProt-based regressor used during preference optimization, and conditions on implicit structural reasoning rather than on explicit backbone--sequence features, its independent endorsement indicates that the stability advantage of AggStab is not an artifact of reward hacking against the internal surrogate. Instead, AggStab designs are recognized as more thermodynamically stabilizing by an orthogonal, $\Delta\Delta G$-trained model, providing external support that AggStab delivers genuinely more stable sequences under fixed-backbone constraints.
+
+
+\subsection{Structure-aware final evaluation}
+
+We next performed a structure-aware final evaluation to assess whether the candidates generated by different design methods simultaneously satisfy the target property improvements while remaining structurally plausible. For each test-set backbone, we sampled 16 sequences from each of ESM-IF, ProteinMPNN, SolubleMPNN, and AggStab. The sampled sequences were first jointly reranked using the predicted aggregation-resistance and stability scores, and the top three candidates per method were subsequently evaluated by Chai-1 structure prediction (Figure~\ref{fig:structure_evaluation}).
+
+AggStab produced candidates with significantly higher structural confidence than all three baselines. Backbone-level mean pLDDT of AggStab candidates was significantly higher than those of ESM-IF, ProteinMPNN, and SolubleMPNN (Figure~\ref{fig:structure_evaluation}a), and a consistent trend held for mean pTM (Figure~\ref{fig:structure_evaluation}b). These results indicate that the property gains obtained by AggStab do not compromise foldability or global structural confidence of the designed sequences.
+
+We next examined structural deviation from the native backbone by computing the RMSD between the Chai-1--predicted structures and the corresponding wild-type structures. AggStab yielded the lowest backbone-level mean RMSD among the four methods, significantly below ESM-IF, ProteinMPNN, and SolubleMPNN (Figure~\ref{fig:structure_evaluation}c), indicating that its designs remain the most structurally consistent with the target backbone. Thus, beyond improving aggregation resistance and stability, AggStab better preserves structural compatibility during sequence redesign.
+
+To quantify overall design quality under a stringent criterion, we defined a joint success as a candidate that simultaneously satisfied high structural confidence and improved both target properties relative to the wild type. Specifically, a successful design was required to meet pLDDT $> 85$, pTM $> 80$, and to achieve both higher aggregation resistance and higher stability than the wild type. Under this strict definition, AggStab attained the highest joint success rate ($59.2\%$), substantially outperforming SolubleMPNN ($46.7\%$), ProteinMPNN ($45.2\%$), and ESM-IF ($20.3\%$) (Figure~\ref{fig:structure_evaluation}d). This indicates that AggStab is markedly more likely to produce candidates that are simultaneously better in both target properties while maintaining reliable structural quality.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figs/fig4.pdf}
+\caption{AggStab improves structure-aware design outcomes in final candidate evaluation. For each test-set backbone, 16 sequences were sampled from each of ESM-IF, ProteinMPNN, SolubleMPNN, and AggStab. Candidates were jointly reranked by predicted aggregation resistance and stability, and the top three sequences per method were evaluated by Chai-1 structure prediction. (a,b) Backbone-level mean pLDDT (a) and mean pTM (b) of the top-ranked candidates. (c) Backbone-level mean RMSD to the wild-type structure. (d) Strict joint success rate, defined as the fraction of candidates simultaneously satisfying pLDDT $> 85$, pTM $> 80$, aggregation resistance better than the wild type, and stability better than the wild type. (e,f) Two representative backbones. For each backbone, predicted structures are arranged from left to right for ESM-IF, ProteinMPNN, SolubleMPNN, and AggStab, with corresponding aggregation-resistance score, $\Delta G_{\mathrm{unfolding}}$, pLDDT, pTM, and RMSD to the wild-type structure annotated below each panel. Statistical significance in (a--c) is indicated as $^{****}P < 10^{-4}$.}
+\label{fig:structure_evaluation}
+\end{figure}
+\FloatBarrier
+
+Representative examples further illustrate these trends (Figure~\ref{fig:structure_evaluation}e,f). Across the two shown backbones, AggStab consistently produced candidates with the highest aggregation-resistance and stability scores while retaining high pLDDT and pTM values and the lowest RMSD to the wild-type structure, whereas ESM-IF candidates, although structurally plausible, showed substantially weaker property gains. Together, these structure-aware evaluations establish that AggStab not only improves predictor-defined target properties, but also produces designs that are more likely to remain structurally well formed and backbone compatible.
+
+\subsection{Molecular dynamics case study of a representative design}
+
+To assess whether the advantages of AggStab hold under explicit dynamical evaluation rather than static structure prediction alone, we performed molecular dynamics (MD) simulations on the representative design highlighted in Figure~\ref{fig:structure_evaluation}f. The wild-type protein and the corresponding designs generated by ESM-IF, ProteinMPNN, SolubleMPNN, and AggStab were each simulated for 200 ns, and we analyzed both backbone conformational stability and residue-level aggregation propensity (Figure~\ref{fig:md_case_study}).
+
+Across the 200-ns trajectories, the AggStab design exhibited the most stable backbone RMSD profile, remaining close to the starting conformation throughout the simulation, whereas the ESM-IF, ProteinMPNN, and SolubleMPNN designs all displayed pronounced RMSD drift and larger structural excursions (Figure~\ref{fig:md_case_study}a). Residue-level RMSF analysis showed the same ordering: the AggStab design had the smallest per-residue fluctuations across the chain, consistent with a more rigid and conformationally persistent fold (Figure~\ref{fig:md_case_study}b). Notably, the AggStab design was also more dynamically stable than the wild-type protein itself, indicating that the gains were not inherited from the wild-type backbone but acquired through sequence redesign.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{figs/figure_6.pdf}
+\caption{Molecular dynamics case study of a representative designed protein selected from Figure~\ref{fig:structure_evaluation}f. The wild-type protein and the corresponding designs generated by ESM-IF, ProteinMPNN, SolubleMPNN, and AggStab were each simulated for 200 ns. (a) Backbone RMSD trajectories over the simulation; the AggStab design maintains the most stable structural profile. (b) Residue-level RMSF; the AggStab design shows the smallest fluctuations across the chain. (c) Residue-wise Aggrescan3D scores for the wild type and the four designs, where lower (more negative) values indicate lower aggregation propensity. All designs reduce the mean Aggrescan3D score relative to the wild type, and the AggStab design additionally eliminates all residues with positive Aggrescan3D values.}
+\label{fig:md_case_study}
+\end{figure}
+\FloatBarrier
+
+We further evaluated the simulated structures with Aggrescan3D, which assigns a per-residue aggregation-propensity score, with smaller (more negative) values indicating lower aggregation tendency. The per-residue heatmap (Figure~\ref{fig:md_case_study}c) shows that all four designs substantially reduce the mean Aggrescan3D score relative to the wild type (WT: $-0.99$; ESM-IF: $-1.81$; ProteinMPNN: $-1.92$; SolubleMPNN: $-1.99$; AggStab: $-1.89$). More informatively, the fraction of residues with positive Aggrescan3D score drops from $15.15\%$ in the wild type to $1.52\%$ for both ESM-IF and SolubleMPNN, and to $0.00\%$ for both ProteinMPNN and AggStab, indicating that the latter two designs completely eliminate aggregation-prone residues in this scaffold. However, only the AggStab design combines this complete removal of positive Aggrescan3D residues with the most stable MD dynamics, whereas the ProteinMPNN design, although equally favorable by Aggrescan3D, exhibits markedly larger RMSD drift and RMSF fluctuations during the simulation.
+
+Taken together, the MD and Aggrescan3D analyses indicate that the AggStab design is the only candidate that simultaneously achieves complete elimination of predicted aggregation-prone residues and the most stable conformational dynamics over a 200-ns timescale, providing a mechanistic illustration consistent with the population-level improvements reported above.
+\section{Discussion}\label{sec3}
+One notable result is that AggStab and SFT perform similarly across both target properties. This suggests that the preferred sequences identified by our joint pairing strategy already provide highly informative supervision for backbone-conditioned sequence optimization. In other words, much of the downstream gain may already be determined at the stage of preference construction, where jointly favorable candidates are selected from the sampled sequence pool. Under this view, the quality of the preference data itself is a major determinant of final performance, whereas the additional benefit of pairwise preference learning over winner-only fine-tuning appears comparatively modest in the present setting. This observation does not diminish the value of DPO-based alignment, but instead highlights an important practical direction for future work: improving candidate generation and preference construction may yield gains that are at least as important as increasing the sophistication of the downstream optimization objective.
+
+\section{Methods}\label{sec4}
+\subsection{Dataset construction and subset selection}\label{sec:dataset}
+
+\subsubsection*{Source dataset}
+
+Our study is built on a large-scale experimental dataset of stress-induced aggregation for small protein domains~\cite{example2026}. Each entry includes the protein sequence, an experimentally measured aggregation phenotype reported as $\log_2(\mathrm{fold\ change})$, and a sequence-cluster assignment. Proteins sharing the same wild-type identifier within a cluster were deduplicated before downstream use. The resulting dataset contains $13{,}853$ proteins, partitioned into $9{,}774$ training, $1{,}279$ validation, and $2{,}800$ test sequences, spanning $4{,}744$, $659$, and $1{,}351$ distinct clusters, respectively. We used this cluster-level split consistently for property-predictor training and inverse-folding evaluation so that train, validation, and test proteins remain separated not only by sequence identity, but also by higher-level structural similarity.
+
+\subsubsection*{Cluster-balanced representative backbones}
+
+Because the raw split contains clusters with highly uneven population sizes, direct backbone-level evaluation would otherwise over-emphasize densely sampled families. We therefore constructed a representative backbone set by sampling one protein per $(\text{split},\,\text{cluster})$ pair with a fixed random seed. Representatives without an acceptable backbone structure were removed. The resulting cluster-balanced backbone set contains $4{,}744$ training, $657$ validation, and $1{,}350$ test structures, with a one-to-one correspondence between retained backbones and sequence clusters. All main-text inverse-folding results are reported on the resulting test benchmark of $1{,}350$ cluster-balanced backbones.
+
+\subsubsection*{Threshold-balanced subset for preference optimization}
+
+The representative backbone pool remains imbalanced with respect to aggregation phenotype: strongly aggregation-prone proteins occupy a relatively sparse left tail of the $\log_2(\mathrm{fold\ change})$ distribution. Since these proteins are the most relevant redesign targets, we constructed a threshold-balanced subset for preference optimization. Specifically, all representative backbones satisfying $\log_2(\mathrm{fold\ change}) < -1$ were retained, and an equal number of backbones were sampled at random from the complementary set. This procedure preserves the full strongly aggregation-prone regime while preventing weakly aggregating proteins from dominating preference construction. The resulting threshold-balanced subset contains $2{,}866$ training and $366$ validation backbones and is used only for preference-optimization training and checkpoint selection.
+
+\subsubsection*{Evaluation protocol}
+
+Preference optimization and checkpoint selection are performed on the threshold-balanced train/validation subsets, whereas all final test results are reported on the full cluster-balanced representative test set of $1{,}350$ backbones. This separation avoids validation-to-test leakage while ensuring that final performance is measured across the broader and more heterogeneous cluster-balanced test space.
+
+\subsection{Property predictors}\label{sec:predictors}
+
+To score sampled sequences during preference construction and reranking, we trained two frozen backbone-conditioned surrogate models: an anti-aggregation predictor and a stability predictor. The two models share the same structure-aware input representation and encoder backbone, but differ in their supervision targets and optimization objectives.
+
+\paragraph{Input representation.}
+Each protein is represented using the SaProt tokenization scheme~\cite{saprot}, in which every residue is encoded as a joint sequence--structure token formed by pairing the amino-acid identity with a Foldseek structural token extracted from the backbone geometry~\cite{foldseek}. This representation allows both predictors to score a candidate sequence under the same fixed-backbone assumption used by the inverse-folding model.
+
+\paragraph{Architecture.}
+Both predictors are built on the SaProt-650M encoder~\cite{saprot}. To adapt the pretrained model while preserving most of its structural prior, we inserted low-rank adaptation (LoRA) modules~\cite{hu2022lora} with rank $r=4$, scaling factor $\alpha=8$, and dropout $0.1$ into the query, key, and value projections of the self-attention layers, while keeping the remaining backbone weights frozen. Residue embeddings from the final hidden layer are aggregated with attention pooling to obtain a protein-level representation, which is then passed through a lightweight multilayer perceptron. For the anti-aggregation model, this representation feeds both a primary aggregation-regression head and an auxiliary stability head; for the stability model, the same encoder and pooling scheme are used with a single scalar regression output.
+
+\paragraph{Training objective.}
+The anti-aggregation predictor is trained to regress the experimentally measured aggregation label, using the clipped target $\mathrm{log2\_fold\_change\_75\_clip}$ to reduce the influence of extreme outliers. Its loss combines three terms: (i) a mean-squared-error loss on the clipped aggregation target, (ii) a pairwise ranking loss that enforces the correct ordering of examples whose aggregation labels differ by more than a margin within each mini-batch, and (iii) an auxiliary $\Delta G_{\mathrm{unfolding}}$ regression loss with weight $\lambda_{\Delta G}=0.1$ applied when a finite stability label is available. In the final configuration, the ranking-loss weight is $1.2$ and the ranking margin is $0.25$.
+
+The stability predictor regresses $\Delta G_{\mathrm{unfolding}}$, defined as the free-energy difference between the folded and unfolded states in the original cDNA-display measurements~\cite{example2026}; larger values therefore indicate greater thermodynamic stability. Stability supervision is available for $13{,}810$ proteins after matching the aggregation dataset to the experimental $\Delta G_{\mathrm{unfolding}}$ table. The loss is evaluated only on samples with finite $\Delta G_{\mathrm{unfolding}}$ values, and each sample is weighted by the inverse of $(1+\mathrm{CI}_{95})$ so that measurements with wider reported $95\%$ confidence intervals contribute less strongly. No ranking or auxiliary loss is used for this model.
+
+\paragraph{Training and model selection.}
+Both predictors are trained on the original train/validation/test split described above, rather than on the threshold-balanced subset used for preference optimization, to avoid biasing the surrogate models toward a narrow phenotype regime. Optimization uses AdamW with separate learning rates for the regression head ($10^{-4}$) and LoRA parameters ($5\times 10^{-5}$), batch size $32$, weight decay $0.2$, and early stopping based on validation Spearman correlation. The final anti-aggregation predictor achieves Pearson and Spearman correlations of $0.7462$ and $0.7562$, respectively, on the held-out test set, whereas the stability predictor achieves $0.7406$ and $0.7065$.
+
+\paragraph{Role in the pipeline.}
+After selection, both predictors are frozen and used strictly as read-only scoring functions. They provide the surrogate signals for candidate filtering, preference construction, and sequence-level evaluation. Final design quality is evaluated separately with structure prediction and external validation metrics, as described in Section~\ref{sec:eval}, to reduce circularity between optimization and assessment.
+
+
+\subsection{Candidate Sampling and Preference Construction}\label{sec:sampling}
+
+We consider the fixed-backbone inverse-folding setting, in which the target backbone geometry is held constant and only the amino-acid sequence is redesigned. The underlying sequence policy is ProteinMPNN, used here as a structure-conditioned autoregressive generator.
+
+\subsubsection{Candidate Generation}
+
+For each backbone $x$, we sample $N=16$ candidate sequences from the current ProteinMPNN policy using temperature-controlled decoding with $T=0.5$. Exact duplicates are removed while preserving sampling order, yielding a candidate set $\{y_i\}_{i=1}^{M}$ with $M\le 16$. Each candidate is then scored by the two frozen property predictors, producing an anti-aggregation score $s_{\mathrm{agg}}(y_i)$ and a predicted stability $\Delta G_{\mathrm{unfolding}}(y_i)$.
+
+\subsubsection{Stability Gate}
+
+To exclude clearly unstable candidates before preference construction, we apply a wild-type-relative stability gate. A candidate $y_i$ is retained only if
+\begin{equation}
+\Delta G_{\mathrm{unfolding}}(y_i) \ge \Delta G_{\mathrm{unfolding,WT}} - m,
+\end{equation}
+where $\Delta G_{\mathrm{unfolding,WT}}$ is the wild-type stability and $m=0.5$ kcal/mol is a tolerance margin. This gate restricts preference construction to candidates that remain within a bounded stability neighborhood of the wild type.
+
+\subsubsection{Preference Pair Construction}
+
+Preference pairs are derived from the stability-gated candidate pool using a rank-aligned construction strategy. Candidates are sorted in descending order, and the top half is paired one-to-one with the bottom half. For joint optimization, sorting is performed lexicographically by $s_{\mathrm{agg}}$ and then by $\Delta G_{\mathrm{unfolding}}$, both in descending order. A pair $(y_w,y_l)$ is retained only if the preferred sequence exceeds the dispreferred sequence by a minimum margin on both properties:
+\begin{equation}
+s_{\mathrm{agg}}(y_w) - s_{\mathrm{agg}}(y_l) > \delta_{\mathrm{agg}},
+\end{equation}
+\begin{equation}
+s_{\mathrm{stab}}(y_w) - s_{\mathrm{stab}}(y_l) > \delta_{\mathrm{stab}},
+\end{equation}
+with $\delta_{\mathrm{agg}}=\delta_{\mathrm{stab}}=0.20$. These margins ensure that each retained pair carries a non-trivial dual-objective preference signal. The same sampled candidate pool is reused across all optimization variants: pure DPO uses full winner--loser pairs, pure SFT uses winners only, and the hybrid objective combines both signals.
+
+\subsection{Optimization Objectives}\label{sec:objectives}
+
+We compared three optimization strategies applied to the same ProteinMPNN policy. For each training example, sequence log-probabilities are computed by teacher forcing the full target sequence and averaging the conditional log-probabilities over designed positions. A fixed decoding-order tensor is shared across all policy and reference evaluations within the same example to eliminate stochastic decoding-order noise from the pairwise preference margin.
+
+\subsubsection{Direct Preference Optimization (DPO)}
+
+In the pure DPO setting, the policy $\pi_\theta$ is optimized relative to a frozen reference $\pi_{\mathrm{ref}}$. For a preference pair $(x, y_w, y_l)$, the loss is
+\begin{equation}
+\mathcal{L}_{\mathrm{DPO}} =
+-\log \sigma \!\Big(
+\beta \big[
+\big(\log \pi_\theta(y_w|x) - \log \pi_{\mathrm{ref}}(y_w|x)\big)
+- \big(\log \pi_\theta(y_l|x) - \log \pi_{\mathrm{ref}}(y_l|x)\big)
+\big]
+\Big),
+\end{equation}
+where $\beta = 0.1$ controls the strength of the KL regularization toward the reference policy.
+
+We use a \emph{moving local reference}. At the beginning of each semi-online round, the selected checkpoint from the previous round initializes both the trainable policy $\pi_\theta$ and the frozen reference $\pi_{\mathrm{ref}}$. The reference is held fixed within that round and refreshed only when the next round begins. This design makes each round a locally regularized refinement step around the current policy, rather than a single global deviation from the original pre-trained model.
+
+\subsubsection{Winner-only Supervised Fine-tuning (SFT)}
+
+As an ablation baseline, we train a winner-only supervised model that uses the same preference pairs but discards the loser and maximizes the likelihood of the preferred sequence only:
+\begin{equation}
+\mathcal{L}_{\mathrm{SFT}} = -\log \pi_\theta(y_w \mid x).
+\end{equation}
+This ablation isolates how much performance can be obtained from direct imitation of preferred sequences alone, without explicit winner--loser contrast.
+
+\subsubsection{Hybrid DPO+SFT}
+
+To combine the directional signal of preference learning with the stability of supervised imitation, we also consider a hybrid objective:
+\begin{equation}
+\mathcal{L}_{\mathrm{hybrid}} =
+\mathcal{L}_{\mathrm{DPO}} + \lambda_{\mathrm{SFT}}\, \mathcal{L}_{\mathrm{SFT}},
+\end{equation}
+where $\lambda_{\mathrm{SFT}}$ controls the supervised auxiliary term. The DPO term enforces pairwise preference alignment, whereas the SFT term stabilizes optimization by anchoring the policy toward direct winner imitation. Based on validation performance, we set $\lambda_{\mathrm{SFT}}=1.0$ in the final reported model.
+
+\subsection{Semi-Online Training Pipeline}\label{sec:training}
+
+To reduce distribution mismatch between a changing sequence policy and a static offline preference set, we adopt a semi-online training procedure in which preference data are periodically regenerated from the current policy. This strategy lies between fully offline DPO and fully online reinforcement learning: preference data are refreshed across rounds, but optimization within each round remains standard supervised training on a finite dataset.
+
+\subsubsection{Round Structure}
+
+In the final configuration, we use two semi-online rounds, each trained for one epoch. To limit per-round update magnitude while still covering the full threshold-balanced training set, the training backbones are partitioned into two disjoint halves using a fixed seed; the first half is used in round 1 and the second in round 2. At the start of each round, the checkpoint selected from the previous round is used to resample candidates. In the DPO and hybrid settings, that same checkpoint also initializes the frozen reference policy. Each round consists of:
+\begin{enumerate}
+\item resampling candidate sequences on the round-specific training backbones and constructing preference pairs;
+\item repeating the same procedure on the threshold-balanced validation backbones to obtain a round-specific validation preference set;
+\item optimizing the policy for one epoch under the chosen objective;
+\item re-evaluating the saved checkpoint(s) on downstream validation metrics; and
+\item carrying the selected checkpoint forward to the next round and, after the final round, to test-time evaluation.
+\end{enumerate}
+
+\subsubsection{Optimization Hyperparameters}
+
+All three sequence-optimization variants use Adam with learning rate $10^{-5}$. Training is implemented in a single-example update regime with gradient accumulation over 32 steps, yielding an effective batch size of 32. Gradients are clipped to a maximum $\ell_2$ norm of 1.0 before each optimizer update.
+
+\subsubsection{Validation-based Checkpoint Selection}
+
+Test performance is never used for model selection. In preliminary experiments, the training-time validation loss was not a reliable proxy for downstream property improvement; accordingly, checkpoint selection is based on downstream validation metrics computed on the threshold-balanced validation set after each round.
+
+Checkpoint selection follows a three-tier rule. \textbf{Tier A} requires non-negative validation improvement in both the mean and best-of-$N$ statistics for both objectives:
+\begin{equation}
+\Delta \mathrm{ProAgg}_{\mathrm{mean}} \ge 0,\quad
+\Delta \mathrm{ProAgg}_{\max} \ge 0,\quad
+\Delta \Delta G_{\mathrm{unfolding,mean}} \ge 0,\quad
+\Delta \Delta G_{\mathrm{unfolding,max}} \ge 0.
+\end{equation}
+Among Tier-A checkpoints, we select the one maximizing the validation joint score
+\begin{equation}
+J = \Delta \mathrm{ProAgg}_{\mathrm{mean}} + \Delta \Delta G_{\mathrm{unfolding,mean}}
+\end{equation}
+If Tier A is empty, \textbf{Tier B} relaxes the rule to non-negative mean improvements only ($\Delta \mathrm{ProAgg}_{\mathrm{mean}} \ge 0$ and $\Delta \Delta G_{\mathrm{unfolding,mean}} \ge 0$), again ranked by $J$. If Tier B is also empty, \textbf{Tier C} ranks all checkpoints by $J$ while penalizing violations of the max-improvement constraints. This tiered procedure keeps model selection entirely validation-based while favoring checkpoints that improve both objectives simultaneously.
+
+\subsection{Candidate Reranking, Structure Validation, and Final Evaluation}\label{sec:eval}
+
+After training, the selected checkpoint is evaluated on the full representative test set of $1{,}350$ backbones. Test data are not used for either checkpoint selection or hyperparameter tuning.
+
+\subsubsection{Candidate Generation and Staged Reranking}
+
+For each test backbone, we again sample $N=16$ candidate sequences using the same decoding temperature ($T=0.5$). Each candidate is annotated with four quantities: (i) predicted anti-aggregation score $s_{\mathrm{agg}}$, (ii) predicted stability $\Delta G_{\mathrm{unfolding}}$, (iii) predicted stability improvement relative to the wild type, $\Delta G_{\mathrm{unfolding}}-\Delta G_{\mathrm{unfolding,WT}}$, and (iv) the ProteinMPNN sequence log-probability.
+
+Because Chai-1 structure prediction is computationally expensive, we retain only the top-$k$ candidates ($k=3$) per backbone for structure validation. Selection is performed with a staged reranking procedure: priority is given first to candidates satisfying both the aggregation and stability criteria while passing pathology filtering, then to candidates satisfying only the aggregation criterion, then to candidates passing pathology filtering alone, and finally to an unfiltered fallback set if necessary. Within each stage, candidates are ranked by descending $s_{\mathrm{agg}}$, then by descending $\Delta G_{\mathrm{unfolding}}-\Delta G_{\mathrm{unfolding,WT}}$, and finally by descending ProteinMPNN log-probability. This strategy favors jointly promising candidates while maintaining broad backbone coverage.
+
+\subsubsection{Structure Validation and Backbone-level Aggregation}
+
+The retained top-3 candidates per backbone are evaluated with Chai-1. When Chai-1 produces multiple structural samples for a sequence, we retain the highest-confidence prediction for downstream analysis. For each retained structure, we record pLDDT and pTM as structural quality indicators.
+
+Wild-type aggregation references are taken from the \texttt{log2\_fold\_change\_75\_clip} field in the source aggregation table, and wild-type stability references are taken from the matched $\Delta G_{\mathrm{unfolding}}$ values in the experimental stability table.
+
+Unless otherwise stated, final quantitative results are reported at the backbone level by averaging over the top-3 retained candidates: aggregation score, $\Delta G_{\mathrm{unfolding}}-\Delta G_{\mathrm{unfolding,WT}}$, ProteinMPNN log-probability, pLDDT, and pTM. We refer to this protocol as \emph{backbone-level mean-of-top3} evaluation. This aggregation reduces sensitivity to isolated high-variance samples and better reflects the candidate quality attainable for each target backbone.
+
+\subsubsection{Strict Joint Success Criterion}
+
+Our primary evaluation criterion is strict joint success. A candidate is counted as successful if and only if it simultaneously satisfies four conditions: (i) $s_{\mathrm{agg}}(y) > s_{\mathrm{agg}}(\mathrm{WT})$; (ii) $\Delta G_{\mathrm{unfolding}}(y) > \Delta G_{\mathrm{unfolding,WT}}$; (iii) $\mathrm{pLDDT} > 0.85$; and (iv) $\mathrm{pTM} > 0.80$. We report the resulting backbone-level strict joint success rate as the primary headline metric. This definition requires concurrent improvement in aggregation resistance, thermodynamic stability, and predicted structural quality, and therefore serves as a stringent end-to-end criterion for fixed-backbone sequence design.
+
+\subsection{Molecular dynamics simulations}\label{sec:md}
+
+To further examine whether the designed sequences remained structurally stable beyond static structure prediction, we performed explicit-solvent molecular dynamics (MD) simulations for selected case-study proteins and their corresponding wild-type references using OpenMM. Simulations were initialized from the Chai-1 predicted structures of the designed sequences and from the corresponding wild-type experimental structures.
+
+Each input structure was first processed with PDBFixer to add missing residues and heavy atoms. When multiple chains were present, only the chain containing the largest number of protein residues was retained for simulation. Putative disulfide bonds were identified automatically by scanning all cysteine SG--SG distances and assigning a disulfide linkage when the distance was below 0.25~nm; the corresponding cysteines were converted to the oxidized \texttt{CYX} state before system construction. Hydrogens were then added at pH~7.0.
+
+The solvated systems were built with the AMBER14 protein force field and TIP3P water model. Each structure was placed in an explicit water box with 1.0~nm padding and 0.15~M ionic strength. Long-range electrostatics were treated with particle-mesh Ewald, a 1.0~nm non-bonded cutoff was used, and covalent bonds involving hydrogens were constrained. Simulations employed Langevin dynamics at 310.15~K with a friction coefficient of $1~\mathrm{ps}^{-1}$ and a 2~fs integration time step.
+
+For each system, we performed energy minimization, followed by 50,000 steps of NVT equilibration and 50,000 steps of NPT equilibration at 1~bar using a Monte Carlo barostat. Production trajectories were then propagated continuously from the equilibrated NPT state for the desired simulation length (100--200~ns depending on the analysis). Coordinates were written to DCD every 5,000 steps, PDB snapshots every 25,000 steps, and checkpoints every 100,000 steps.
+
+MD trajectories were used as a post hoc dynamical validation of representative case studies rather than as a model-selection criterion. In the case-study analyses, structural stability was assessed from standard trajectory-derived quantities such as root-mean-square deviation (RMSD) and root-mean-square fluctuation (RMSF), allowing us to compare the temporal stability of AggStab designs against baseline-designed and wild-type sequences under the same simulation protocol.
+
+\subsection{Author contributions}
+Please update the author contribution statement for the new manuscript.
+
+\subsection{Conflict of Interest}
+The authors declare that they have no competing interests.
+
+\subsection{Data availability}
+Please provide a data availability statement for the new manuscript.
+
+\subsection{Code availability}
+Please provide a code availability statement for the new manuscript.
+
+\subsection{Acknowledgements}
+Please add acknowledgements here if applicable.
+
+\bibliography{sn-bibliography}
+
+% Uncomment the appendix block below if supplementary materials are needed.
+% \begin{appendices}
+% \section{Supplementary Information}
+% Add supplementary text, figures, or tables here.
+% \end{appendices}
+
+\end{document}

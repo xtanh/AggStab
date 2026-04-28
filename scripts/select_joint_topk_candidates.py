@@ -46,11 +46,14 @@ def rank_candidates(df: pd.DataFrame, top_k: int, stage: str) -> pd.DataFrame:
     ranked = df.copy()
     ranked["selection_stage"] = stage
     ranked["deltaG_minus_wt_for_sort"] = ranked["deltaG_minus_wt"].fillna(float("-inf"))
+    if "mpnn_logprob" not in ranked.columns:
+        ranked["mpnn_logprob"] = float("nan")
+    ranked["mpnn_logprob_for_sort"] = ranked["mpnn_logprob"].fillna(float("-inf"))
     ranked = ranked.sort_values(
-        ["proagg_score", "deltaG_minus_wt_for_sort", "mpnn_logprob"],
+        ["proagg_score", "deltaG_minus_wt_for_sort", "mpnn_logprob_for_sort"],
         ascending=[False, False, False],
     ).head(top_k)
-    ranked = ranked.drop(columns=["deltaG_minus_wt_for_sort"])
+    ranked = ranked.drop(columns=["deltaG_minus_wt_for_sort", "mpnn_logprob_for_sort"])
     return ranked
 
 
