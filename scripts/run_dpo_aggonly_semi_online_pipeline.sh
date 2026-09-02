@@ -26,22 +26,19 @@ PREDICTOR_BATCH_SIZE=${PREDICTOR_BATCH_SIZE:-16}
 
 AGG_CONFIG=${AGG_CONFIG:-"configs/proagg_final_candidate.yaml"}
 STAB_CONFIG=${STAB_CONFIG:-"configs/proagg_deltaG_only.yaml"}
-STABILITY_CSV=${STABILITY_CSV:-"data/rocklin/Metagenomic_dG.csv"}
 
 ROUNDS=${ROUNDS:-2}
 ROUND_EPOCHS=${ROUND_EPOCHS:-1}
-SFT_LR=${SFT_LR:-1e-5}
-SFT_BATCH_SIZE=${SFT_BATCH_SIZE:-32}
-SFT_PATIENCE=${SFT_PATIENCE:-1}
-
+DPO_LR=${DPO_LR:-1e-5}
+DPO_BETA=${DPO_BETA:-0.1}
+DPO_SFT_LOSS_WEIGHT=${DPO_SFT_LOSS_WEIGHT:-0.0}
+SFT_ONLY=${SFT_ONLY:-0}
+DPO_BATCH_SIZE=${DPO_BATCH_SIZE:-32}
+DPO_PATIENCE=${DPO_PATIENCE:-1}
 AGG_SCORE_GAP_DELTA=${AGG_SCORE_GAP_DELTA:-0.20}
-STAB_SCORE_GAP_DELTA=${STAB_SCORE_GAP_DELTA:-0.20}
-STABILITY_GATE_MODE=${STABILITY_GATE_MODE:-"wt_absolute"}
-STABILITY_GATE_MIN=${STABILITY_GATE_MIN:-0.0}
-STABILITY_GATE_MARGIN=${STABILITY_GATE_MARGIN:-0.5}
 
 START_MPNN_CKPT=${START_MPNN_CKPT:-""}
-RUN_TAG=${RUN_TAG:-"semi_online_sft_joint_r${ROUNDS}_e${ROUND_EPOCHS}_n${NUM_SAMPLES}"}
+RUN_TAG=${RUN_TAG:-"semi_aggonly_dpo_r${ROUNDS}_e${ROUND_EPOCHS}_n${NUM_SAMPLES}"}
 OUTPUT_ROOT=${OUTPUT_ROOT:-"results/${RUN_TAG}"}
 ORIGINAL_RESULTS_CACHE=${ORIGINAL_RESULTS_CACHE:-""}
 VALID_ORIGINAL_RESULTS_CACHE=${VALID_ORIGINAL_RESULTS_CACHE:-""}
@@ -58,6 +55,22 @@ if [ -n "$START_MPNN_CKPT" ]; then
 else
   CURRENT_CKPT=""
 fi
+
+echo "============================================================"
+if [ "$SFT_ONLY" = "1" ]; then
+  PIPELINE_NAME="Semi-online aggregation-only SFT pipeline"
+else
+  PIPELINE_NAME="Semi-online aggregation-only DPO pipeline"
+fi
+echo "$PIPELINE_NAME"
+echo "  rounds=$ROUNDS  round_epochs=$ROUND_EPOCHS"
+echo "  train/valid/test backbones: $MAX_TRAIN_PDBS / $MAX_VALID_PDBS / $MAX_TEST_PDBS"
+echo "  N=$NUM_SAMPLES  T=$TEMPERATURE  beta=$DPO_BETA  sft_loss_weight=$DPO_SFT_LOSS_WEIGHT  sft_only=$SFT_ONLY"
+echo "  agg_gap=$AGG_SCORE_GAP_DELTA"
+echo "  valid selection enabled=$VALID_SELECTION_ENABLED  valid_pdb_dir=$SELECT_PDB_VALID"
+echo "  round train split mode=$ROUND_TRAIN_SPLIT_MODE"
+echo "  output_root=$OUTPUT_ROOT"
+echo "============================================================"
 
 ROUND_LIST_DIR="${OUTPUT_ROOT}/round_train_lists"
 if [ "$ROUND_TRAIN_SPLIT_MODE" = "halves" ] || [ "$ROUND_TRAIN_SPLIT_MODE" = "thirds" ] || [ "$ROUND_TRAIN_SPLIT_MODE" = "quarters" ]; then
@@ -83,8 +96,8 @@ if rounds != num_splits:
     raise SystemExit(f"ROUND_TRAIN_SPLIT_MODE={mode} requires ROUNDS={num_splits}")
 
 base, rem = divmod(len(files), num_splits)
-splits = []
 start = 0
+splits = []
 for i in range(num_splits):
     size = base + (1 if i < rem else 0)
     end = start + size
@@ -93,9 +106,9 @@ for i in range(num_splits):
 
 for i, split in enumerate(splits):
     out = os.path.join(output_dir, f"round{i}.txt")
-    with open(out, "w") as f:
+    with open(out, "w") as handle:
         for path in split:
-            f.write(os.path.basename(path) + "\\n")
+            handle.write(os.path.basename(path) + "\\n")
 print(f"Wrote split lists to {output_dir} with sizes {[len(s) for s in splits]}")
 PY
 fi
@@ -106,76 +119,117 @@ for (( ROUND=0; ROUND<ROUNDS; ROUND++ )); do
 
   TRAIN_PAIRS="${ROUND_DIR}/train_pairs.pt"
   VAL_PAIRS="${ROUND_DIR}/val_pairs.pt"
-  SFT_OUTPUT="${ROUND_DIR}/sft"
+  if [ "$SFT_ONLY" = "1" ]; then
+    DPO_OUTPUT="${ROUND_DIR}/sft"
+    DPO_TRAIN_SCRIPT="src/dpo/sft_train.py"
+  elif [ "$DPO_SFT_LOSS_WEIGHT" = "0" ] || [ "$DPO_SFT_LOSS_WEIGHT" = "0.0" ]; then
+    DPO_OUTPUT="${ROUND_DIR}/dpo"
+    DPO_TRAIN_SCRIPT="src/dpo/dpo_train.py"
+  else
+    DPO_OUTPUT="${ROUND_DIR}/dpo_sft"
+    DPO_TRAIN_SCRIPT="src/dpo/dpo_sft_train.py"
+  fi
   EVAL_JSON="${ROUND_DIR}/eval_results.json"
 
-  JOINT_COMMON_ARGS=(
-    --agg_ckpt "$AGG_CKPT"
-    --agg_config "$AGG_CONFIG"
-    --stab_ckpt "$STAB_CKPT"
-    --stab_config "$STAB_CONFIG"
-    --stability_csv "$STABILITY_CSV"
+  echo ""
+  echo "============================================================"
+  echo "Round ${ROUND}/${ROUNDS}"
+  echo "  starting_ckpt=${CURRENT_CKPT:-original_ProteinMPNN}"
+  echo "============================================================"
+
+  AGG_COMMON_ARGS=(
+    --proagg_ckpt "$AGG_CKPT"
+    --proagg_config "$AGG_CONFIG"
     --num_samples "$NUM_SAMPLES"
     --temperature "$TEMPERATURE"
-    --agg_score_gap_delta "$AGG_SCORE_GAP_DELTA"
-    --stab_score_gap_delta "$STAB_SCORE_GAP_DELTA"
-    --stability_gate_mode "$STABILITY_GATE_MODE"
-    --stability_gate_min "$STABILITY_GATE_MIN"
-    --stability_gate_margin "$STABILITY_GATE_MARGIN"
-    --predictor_batch_size "$PREDICTOR_BATCH_SIZE"
+    --score_gap_delta "$AGG_SCORE_GAP_DELTA"
+    --proagg_batch_size "$PREDICTOR_BATCH_SIZE"
     --device "$DEVICE"
     --seed "$SEED"
   )
   if [ -n "$CURRENT_CKPT" ]; then
-    JOINT_COMMON_ARGS+=(--mpnn_ckpt "$CURRENT_CKPT")
+    AGG_COMMON_ARGS+=(--mpnn_ckpt "$CURRENT_CKPT")
   fi
 
   ROUND_TRAIN_ARGS=()
   if [ "$ROUND_TRAIN_SPLIT_MODE" = "halves" ] || [ "$ROUND_TRAIN_SPLIT_MODE" = "thirds" ] || [ "$ROUND_TRAIN_SPLIT_MODE" = "quarters" ]; then
     ROUND_LIST_FILE="${ROUND_LIST_DIR}/round${ROUND}.txt"
     ROUND_TRAIN_ARGS+=(--pdb_list_file "$ROUND_LIST_FILE")
+    echo "  using round-specific train list: $ROUND_LIST_FILE"
   fi
 
-  python src/dpo/sample_and_score_joint.py \
+  echo "Step 1: Build aggregation-only train pairs"
+  python src/dpo/sample_and_score.py \
     --pdb_dir "$PDB_TRAIN" \
     --output "$TRAIN_PAIRS" \
     --max_pdbs "$MAX_TRAIN_PDBS" \
     "${ROUND_TRAIN_ARGS[@]}" \
-    "${JOINT_COMMON_ARGS[@]}"
+    "${AGG_COMMON_ARGS[@]}"
 
-  python src/dpo/sample_and_score_joint.py \
+  echo "Step 2: Build aggregation-only val pairs"
+  python src/dpo/sample_and_score.py \
     --pdb_dir "$PDB_VALID" \
     --output "$VAL_PAIRS" \
     --max_pdbs "$MAX_VALID_PDBS" \
-    "${JOINT_COMMON_ARGS[@]}"
+    "${AGG_COMMON_ARGS[@]}"
 
-  TRAIN_ARGS=(
-    --pairs_path "$TRAIN_PAIRS"
-    --val_pairs_path "$VAL_PAIRS"
-    --output_dir "$SFT_OUTPUT"
-    --device "$DEVICE"
-    --epochs "$ROUND_EPOCHS"
-    --lr "$SFT_LR"
-    --batch_size "$SFT_BATCH_SIZE"
-    --patience "$SFT_PATIENCE"
-    --save_every 1
-    --seed "$SEED"
-  )
+  if [ "$SFT_ONLY" = "1" ]; then
+    echo "Step 3: Train aggregation-only SFT on winner sequences"
+    TRAIN_ARGS=(
+      --pairs_path "$TRAIN_PAIRS"
+      --val_pairs_path "$VAL_PAIRS"
+      --output_dir "$DPO_OUTPUT"
+      --device "$DEVICE"
+      --epochs "$ROUND_EPOCHS"
+      --lr "$DPO_LR"
+      --batch_size "$DPO_BATCH_SIZE"
+      --patience "$DPO_PATIENCE"
+      --save_every 1
+      --seed "$SEED"
+    )
+  else
+    echo "Step 3: Train aggregation-only DPO"
+    TRAIN_ARGS=(
+      --pairs_path "$TRAIN_PAIRS"
+      --val_pairs_path "$VAL_PAIRS"
+      --output_dir "$DPO_OUTPUT"
+      --device "$DEVICE"
+      --epochs "$ROUND_EPOCHS"
+      --lr "$DPO_LR"
+      --beta "$DPO_BETA"
+      --batch_size "$DPO_BATCH_SIZE"
+      --patience "$DPO_PATIENCE"
+      --score_gap_delta "$AGG_SCORE_GAP_DELTA"
+      --save_every 1
+      --seed "$SEED"
+    )
+  fi
+  if [ "$DPO_TRAIN_SCRIPT" = "src/dpo/dpo_sft_train.py" ]; then
+    TRAIN_ARGS+=(--sft_loss_weight "$DPO_SFT_LOSS_WEIGHT")
+  fi
   if [ -n "$CURRENT_CKPT" ]; then
     TRAIN_ARGS+=(--mpnn_ckpt "$CURRENT_CKPT")
   fi
-  python src/dpo/sft_train.py "${TRAIN_ARGS[@]}"
+  python "$DPO_TRAIN_SCRIPT" "${TRAIN_ARGS[@]}"
 
-  BEST_CKPT="${SFT_OUTPUT}/mpnn_sft_best.pt"
+  if [ "$SFT_ONLY" = "1" ]; then
+    BEST_CKPT="${DPO_OUTPUT}/mpnn_sft_best.pt"
+  else
+    BEST_CKPT="${DPO_OUTPUT}/mpnn_dpo_best.pt"
+  fi
   if [ ! -f "$BEST_CKPT" ]; then
-    BEST_CKPT=$(ls -t "$SFT_OUTPUT"/mpnn_sft_epoch*.pt 2>/dev/null | head -1)
+    if [ "$SFT_ONLY" = "1" ]; then
+      BEST_CKPT=$(ls -t "$DPO_OUTPUT"/mpnn_sft_epoch*.pt 2>/dev/null | head -1)
+    else
+      BEST_CKPT=$(ls -t "$DPO_OUTPUT"/mpnn_dpo_epoch*.pt 2>/dev/null | head -1)
+    fi
   fi
 
   if [ "$VALID_SELECTION_ENABLED" = "1" ]; then
+    echo "Step 3b: Select best checkpoint on validation set"
     SELECT_DIR="${ROUND_DIR}/valid_epoch_selection"
     SELECT_ARGS=(
-      --ckpt_dir "$SFT_OUTPUT"
-      --ckpt_glob "mpnn_sft_epoch*.pt"
+      --ckpt_dir "$DPO_OUTPUT"
       --pdb_dir "$SELECT_PDB_VALID"
       --agg_ckpt "$AGG_CKPT"
       --agg_config "$AGG_CONFIG"
@@ -191,14 +245,17 @@ for (( ROUND=0; ROUND<ROUNDS; ROUND++ )); do
       --selection_metric "$VALID_SELECTION_METRIC"
       --max_penalty "$VALID_SELECTION_MAX_PENALTY"
     )
+    if [ "$SFT_ONLY" = "1" ]; then
+      SELECT_ARGS+=(--ckpt_glob "mpnn_sft_epoch*.pt")
+    fi
     if [ -n "$VALID_ORIGINAL_RESULTS_CACHE" ]; then
       SELECT_ARGS+=(--original_results_cache "$VALID_ORIGINAL_RESULTS_CACHE")
     fi
     python scripts/select_best_joint_checkpoint.py "${SELECT_ARGS[@]}"
     BEST_CKPT=$(python - <<PY
 import json
-with open("${SELECT_DIR}/best_checkpoint.json") as f:
-    payload=json.load(f)
+with open("${SELECT_DIR}/best_checkpoint.json") as handle:
+    payload = json.load(handle)
 print(payload["checkpoint"])
 PY
 )
@@ -206,6 +263,7 @@ PY
 
   CURRENT_CKPT="$BEST_CKPT"
 
+  echo "Step 4: Evaluate round checkpoint with aggregation and stability predictors"
   if [ -n "$ORIGINAL_RESULTS_CACHE" ]; then
     python src/dpo/evaluate.py \
       --pdb_dir "$PDB_TEST" \
@@ -238,9 +296,8 @@ PY
       --device "$DEVICE" \
       --seed "$SEED"
   fi
-
   python scripts/analyze_dual_eval.py "$EVAL_JSON" --output_dir "$ROUND_DIR"
 done
 
-printf "final_checkpoint=%s\n" "$CURRENT_CKPT" > "${OUTPUT_ROOT}/final_checkpoint.txt"
-echo "Done. Final checkpoint: $CURRENT_CKPT"
+echo "final_checkpoint=${CURRENT_CKPT}" > "${OUTPUT_ROOT}/final_checkpoint.txt"
+echo "Done. Final checkpoint: ${CURRENT_CKPT}"

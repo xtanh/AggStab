@@ -30,11 +30,8 @@ from src.mpnn.mpnn_wrapper import (
     load_mpnn_model,
     featurize_pdb,
     MPNN_ALPHABET,
+    protein_mpnn_scores,
 )
-
-MPNN_DIR = "/home/xy_th/ProteinMPNN"
-sys.path.insert(0, MPNN_DIR)
-from protein_mpnn_utils import _scores
 
 from src.utils.seed import set_global_seed
 
@@ -107,7 +104,7 @@ def compute_seq_log_prob(model, feat, S, device, randn=None):
         randn = torch.zeros(chain_M.shape, device=device)
     log_probs = model(X, S, mask, chain_M, residue_idx, chain_encoding_all, randn)
 
-    neg_scores = _scores(S, log_probs, mask * chain_M)
+    neg_scores = protein_mpnn_scores(S, log_probs, mask * chain_M)
     return -neg_scores.squeeze()
 
 

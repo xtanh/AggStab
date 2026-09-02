@@ -1,128 +1,322 @@
-# AggStab
+# AggStab: Joint preference alignment for aggregation-aware inverse folding
 
-Code for multi-objective protein inverse folding with aggregation- and stability-aware preference alignment.
+![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.5-EE4C2C?logo=pytorch&logoColor=white)
+![ProteinMPNN](https://img.shields.io/badge/generator-ProteinMPNN-66558C)
+![Status](https://img.shields.io/badge/status-research%20code-6E9B78)
 
-## Scope
+AggStab is a fixed-backbone protein inverse-folding framework that aligns
+ProteinMPNN to two experimentally grounded objectives: resistance to
+stress-induced aggregation and folding stability. Candidate sequences are
+scored by frozen, backbone-conditioned SaProt reward models, converted into
+joint winner-loser preferences, and used to update the generator with direct
+preference optimization (DPO) and winner-sequence regularization.
 
-This repository contains the code used for:
+The repository contains the training and evaluation code accompanying:
 
-- training the aggregation predictor,
-- training the stability predictor,
-- semi-online preference optimization on top of ProteinMPNN,
-- winner-only SFT and hybrid DPO+SFT baselines,
-- candidate export, top-k selection, and Chai-1 structure validation.
+> **Joint preference alignment of aggregation resistance and folding stability
+> in inverse protein folding**
 
-Large artifacts are intentionally excluded from version control:
+The manuscript is in preparation. Citation information and public download
+links for processed data and trained checkpoints will be added when available.
 
-- `data/`
-- `results/`
-- checkpoints
-- generated figures and logs
+## Method overview
 
-The repository is organized for code review and paper reproduction, not for shipping pretrained weights.
+For every target backbone, AggStab performs the following semi-online loop:
+
+1. Sample candidate sequences from the current ProteinMPNN policy.
+2. Score candidates with frozen aggregation-resistance and stability predictors.
+3. Apply a wild-type-relative stability gate.
+4. Construct preference pairs for which the winner improves both reward axes.
+5. Optimize DPO plus winner-sequence negative log-likelihood.
+6. Resample from the updated policy and rebuild preferences for the next round.
+
+The main paper setting uses two rounds, disjoint training halves, one epoch per
+round, 16 samples per backbone, sampling temperature 0.5, DPO beta 0.1, and an
+SFT loss weight of 1.0.
 
 ## Repository layout
 
-- `src/models/`
-  - predictor architectures
-- `src/ln/`
-  - Lightning training and evaluation for property predictors
-- `src/dpo/`
-  - preference optimization trainers and scoring utilities
-- `scripts/`
-  - experiment pipelines, plotting, export, and analysis
-- `configs/`
-  - predictor configs
-- `docs/`
-  - experiment notes, final result summaries, and paper-facing records
+```text
+configs/                         Final and exploratory reward-model configs
+datasets/                        Reward-model dataset loaders
+src/models/                      SaProt-based reward architectures
+src/ln/                          PyTorch Lightning reward training/evaluation
+src/mpnn/                        ProteinMPNN loading, sampling, and likelihoods
+src/dpo/                         Pair construction and DPO/SFT trainers
+scripts/                         End-to-end pipelines and evaluation utilities
+```
 
-## Main code paths
+The primary implementation files are:
 
-### Property predictors
+```text
+configs/proagg_final_candidate.yaml              Aggregation reward config
+configs/proagg_deltaG_only.yaml                  Stability reward config
+src/dpo/sample_and_score_joint.py                Joint preference construction
+src/dpo/dpo_sft_train.py                         DPO + winner regularization
+scripts/run_dpo_sft_joint_semi_online_pipeline.sh Main AggStab pipeline
+scripts/run_dpo_aggonly_semi_online_pipeline.sh    Aggregation-only controls
+scripts/run_dpo_stabonly_semi_online_pipeline.sh   Stability-only controls
+scripts/export_dpo_test_candidates.py            Full candidate export
+scripts/select_joint_topk_candidates.py          Staged joint top-k selection
+scripts/run_chai_batch_from_candidates_resume.py  Sharded Chai-1 evaluation
+scripts/analyze_joint_structure_vs_wt.py          Structure-aware summary
+```
 
-- Aggregation / stability model definition:
-  - `src/models/ProAgg.py`
-- Predictor training:
-  - `src/ln/lightning_train.py`
-- Detailed predictor evaluation:
-  - `src/ln/evaluate_detailed.py`
+## Installation
 
-### Preference optimization
+Clone AggStab and create the main training environment:
 
-- Joint pair construction:
-  - `src/dpo/sample_and_score_joint.py`
-- Pure DPO trainer:
-  - `src/dpo/dpo_train.py`
-- Winner-only SFT trainer:
-  - `src/dpo/sft_train.py`
-- Hybrid DPO+SFT trainer:
-  - `src/dpo/dpo_sft_train.py`
-- Cached evaluation:
-  - `src/dpo/evaluate.py`
+```bash
+git clone https://github.com/xtanh/protein_aggregation.git
+cd protein_aggregation
+conda env create -f environment.yml
+conda activate aggstab
+```
 
-### Experiment pipelines
+AggStab uses the official [ProteinMPNN](https://github.com/dauparas/ProteinMPNN)
+implementation. Clone it separately and expose its location:
 
-- Semi-online pure DPO:
-  - `scripts/run_dpo_joint_semi_online_pipeline.sh`
-- Semi-online pure SFT:
-  - `scripts/run_sft_joint_semi_online_pipeline.sh`
-- Semi-online hybrid DPO+SFT:
-  - `scripts/run_dpo_sft_joint_semi_online_pipeline.sh`
-- Validation-based checkpoint selection:
-  - `scripts/select_best_joint_checkpoint.py`
+```bash
+git clone https://github.com/dauparas/ProteinMPNN.git third_party/ProteinMPNN
+export PROTEINMPNN_DIR="$PWD/third_party/ProteinMPNN"
+export PROTEINMPNN_CKPT="$PROTEINMPNN_DIR/vanilla_model_weights/v_48_020.pt"
+```
 
-### Final downstream analysis
+Download `SaProt_650M_PDB` using the official
+[SaProt repository](https://github.com/westlake-repl/Saprot), then set:
 
-- Export full-test candidates:
-  - `scripts/export_dpo_test_candidates.py`
-- Select joint top-k candidates:
-  - `scripts/select_joint_topk_candidates.py`
-- Run Chai-1 in shards:
-  - `scripts/run_chai_batch_from_candidates.py`
-- Final strict joint analysis:
-  - `scripts/analyze_joint_structure_vs_wt.py`
+```bash
+export SAPROT_MODEL_PATH=/absolute/path/to/SaProt_650M_PDB
+```
 
-## Final method summary
+The two required variables can be made persistent in the shell configuration.
+The code also recognizes a sibling `../ProteinMPNN` checkout when
+`PROTEINMPNN_DIR` is not set.
 
-The current best end-to-end method is:
+Chai-1 structure prediction is best installed in a separate environment because
+its dependency stack differs from the reward-training environment. Follow the
+official [chai-lab installation](https://github.com/chaidiscovery/chai-lab).
 
-- semi-online hybrid DPO+SFT
-- two rounds
-- one epoch per round
-- disjoint train halves across rounds
-- validation-based checkpoint selection
-- best hybrid weight: `w_sft = 1.0`
+## Data and checkpoints
 
-Key result summary is maintained in:
+Large datasets, structures, model weights, generated candidates, and molecular
+dynamics trajectories are intentionally excluded from Git. The expected local
+layout is:
 
-- `docs/results.md`
-- `docs/chinese.md`
+```text
+data/
+  rocklin/
+    train.csv
+    valid.csv
+    test.csv
+    Metagenomic_dG.csv
+    rawdata/data.csv
+  dpo/
+    representative_pdbs/
+      train/*.pdb
+      valid/*.pdb
+      test/*.pdb
+    subsets/threshold_balance_ltneg1_eq/
+      train/*.pdb
+      valid/*.pdb
 
-## Reproduction prerequisites
+checkpoints/
+  aggregation_reward.ckpt
+  stability_reward.ckpt
+```
 
-This code expects local access to:
+Reward-model split CSVs require at least these columns:
 
-- ProteinMPNN weights
-- SaProt checkpoints / tokenizer assets
-- Rocklin dataset files
-- Chai-1 runtime environment
+```text
+name
+protein_sequence
+sa_sequence_foldseek
+log2_fold_change_75_clip
+```
 
-Those assets are not committed here.
+`Metagenomic_dG.csv` requires `name`, `deltaG`, and `deltaG_95CI`.
+`rawdata/data.csv` supplies the protein-name to structural-token lookup used
+during candidate scoring. Structural tokens can be generated from backbone
+structures with Foldseek following the SaProt data-preparation protocol.
 
-## Recommended review order
+Set a non-default processed-data root if needed:
 
-For a fast code review, read files in this order:
+```bash
+export AGGSTAB_DATA_DIR=/absolute/path/to/rocklin
+```
 
-1. `docs/results.md`
-2. `src/dpo/sample_and_score_joint.py`
-3. `src/dpo/dpo_train.py`
-4. `src/dpo/sft_train.py`
-5. `src/dpo/dpo_sft_train.py`
-6. `scripts/run_dpo_joint_semi_online_pipeline.sh`
-7. `scripts/run_dpo_sft_joint_semi_online_pipeline.sh`
-8. `scripts/analyze_joint_structure_vs_wt.py`
+## Train the reward models
 
-## Notes
+Train the aggregation-resistance and stability predictors independently:
 
-- The repository currently tracks historical experiment notes in `docs/`.
-- The codebase is still research code; the important part is that the training and analysis paths are explicit and auditable.
+```bash
+python src/ln/lightning_train.py \
+  --config configs/proagg_final_candidate.yaml
+
+python src/ln/lightning_train.py \
+  --config configs/proagg_deltaG_only.yaml
+```
+
+Both commands write PyTorch Lightning runs beneath `results/lightning_logs/`.
+The paper models use SaProt-650M with LoRA on query, key, and value projections.
+
+## Run AggStab
+
+The following command reproduces the main two-round training protocol after the
+processed data and reward checkpoints have been placed as above:
+
+```bash
+export AGG_CKPT="$PWD/checkpoints/aggregation_reward.ckpt"
+export STAB_CKPT="$PWD/checkpoints/stability_reward.ckpt"
+
+CUDA_VISIBLE_DEVICES=0 \
+PDB_TRAIN=data/dpo/subsets/threshold_balance_ltneg1_eq/train \
+PDB_VALID=data/dpo/subsets/threshold_balance_ltneg1_eq/valid \
+PDB_TEST=data/dpo/representative_pdbs/test \
+SELECT_PDB_VALID=data/dpo/subsets/threshold_balance_ltneg1_eq/valid \
+MAX_TRAIN_PDBS=-1 \
+MAX_VALID_PDBS=366 \
+MAX_TEST_PDBS=1350 \
+SELECT_MAX_VALID_PDBS=366 \
+NUM_SAMPLES=16 \
+TEMPERATURE=0.5 \
+SEED=42 \
+ROUNDS=2 \
+ROUND_EPOCHS=1 \
+ROUND_TRAIN_SPLIT_MODE=halves \
+ROUND_TRAIN_SPLIT_SEED=42 \
+DPO_BETA=0.1 \
+DPO_SFT_LOSS_WEIGHT=1.0 \
+DPO_BATCH_SIZE=32 \
+DPO_PATIENCE=1 \
+AGG_SCORE_GAP_DELTA=0.20 \
+STAB_SCORE_GAP_DELTA=0.20 \
+STABILITY_GATE_MODE=wt_absolute \
+STABILITY_GATE_MARGIN=0.5 \
+VALID_SELECTION_ENABLED=1 \
+VALID_SELECTION_METRIC=joint_sum \
+VALID_SELECTION_MAX_PENALTY=0.1 \
+RUN_TAG=aggstab_r2 \
+OUTPUT_ROOT=results/aggstab_r2 \
+bash scripts/run_dpo_sft_joint_semi_online_pipeline.sh \
+  "$AGG_CKPT" "$STAB_CKPT" cuda:0
+```
+
+Round directories are zero-indexed. For this two-round run, the final policy is
+normally written to:
+
+```text
+results/aggstab_r2/round1/dpo_sft/mpnn_dpo_epoch1.pt
+```
+
+The validation-selection JSON records the exact checkpoint advanced between
+rounds. Test-set results are not used for checkpoint selection.
+
+## Objective and regularization controls
+
+The aggregation-only and stability-only pipelines use the same semi-online
+outer loop. `DPO_SFT_LOSS_WEIGHT=0` runs pure DPO,
+`DPO_SFT_LOSS_WEIGHT=1` runs DPO plus winner regularization, and `SFT_ONLY=1`
+runs winner-only SFT:
+
+```bash
+# Aggregation-only DPO + winner regularization
+DPO_SFT_LOSS_WEIGHT=1.0 \
+ROUND_TRAIN_SPLIT_MODE=halves \
+bash scripts/run_dpo_aggonly_semi_online_pipeline.sh \
+  "$AGG_CKPT" "$STAB_CKPT" cuda:0
+
+# Stability-only DPO + winner regularization
+DPO_SFT_LOSS_WEIGHT=1.0 \
+ROUND_TRAIN_SPLIT_MODE=halves \
+bash scripts/run_dpo_stabonly_semi_online_pipeline.sh \
+  "$AGG_CKPT" "$STAB_CKPT" cuda:0
+```
+
+Set the remaining dataset sizes, seeds, and output variables exactly as in the
+main command when reproducing matched controls.
+
+## Export and rerank candidates
+
+Export 16 candidates per test backbone from the final policy:
+
+```bash
+python scripts/export_dpo_test_candidates.py \
+  --pdb_dir data/dpo/representative_pdbs/test \
+  --mpnn_ckpt results/aggstab_r2/round1/dpo_sft/mpnn_dpo_epoch1.pt \
+  --proagg_ckpt "$AGG_CKPT" \
+  --proagg_config configs/proagg_final_candidate.yaml \
+  --stab_ckpt "$STAB_CKPT" \
+  --stab_config configs/proagg_deltaG_only.yaml \
+  --stability_csv data/rocklin/Metagenomic_dG.csv \
+  --output_csv results/aggstab_r2/fulltest_candidates.csv \
+  --num_samples 16 \
+  --temperature 0.5 \
+  --proagg_batch_size 16 \
+  --mpnn_logprob_batch_size 16 \
+  --device cuda:0 \
+  --seed 42
+```
+
+Apply the staged joint reranker and retain three candidates per backbone:
+
+```bash
+python scripts/select_joint_topk_candidates.py \
+  --input_csv results/aggstab_r2/fulltest_candidates.csv \
+  --output_csv results/aggstab_r2/top3_joint_candidates.csv \
+  --output_fasta results/aggstab_r2/top3_joint_candidates.fasta \
+  --tag AggStab \
+  --top_k 3
+```
+
+The first filtering stage containing at least three candidates supplies all
+three retained sequences; candidates are not accumulated across stages.
+
+## Chai-1 structure prediction
+
+Run the retained candidates in four independent shards. Activate the Chai-1
+environment before launching these processes.
+
+```bash
+for shard in 0 1 2 3; do
+  CUDA_VISIBLE_DEVICES="$shard" python \
+    scripts/run_chai_batch_from_candidates_resume.py \
+    --input_csv results/aggstab_r2/top3_joint_candidates.csv \
+    --output_dir results/aggstab_r2/chai_top3_joint \
+    --device cuda:0 \
+    --num_shards 4 \
+    --shard_idx "$shard" \
+    > "results/aggstab_r2/chai_shard${shard}.log" 2>&1 &
+done
+wait
+```
+
+The default settings use three trunk recycles, 200 diffusion steps, seed 42,
+ESM embeddings, and select the highest-pLDDT structure from the Chai-1 samples.
+
+## Reproducibility notes
+
+- All main sampling and training runs use seed 42.
+- Candidate sequences are deduplicated while preserving sample order.
+- The aggregation and stability predictors remain frozen during preference optimization.
+- Validation candidates are used only for checkpoint evaluation, not gradient updates.
+- `results/`, `data/`, checkpoints, figures, logs, and trajectories are ignored by Git.
+- The repository contains research code and assumes single-chain fixed-backbone inputs.
+
+## Acknowledgements
+
+AggStab builds on
+[ProteinMPNN](https://github.com/dauparas/ProteinMPNN),
+[SaProt](https://github.com/westlake-repl/Saprot), Foldseek, and
+[Chai-1](https://github.com/chaidiscovery/chai-lab). Please cite the original
+methods and comply with their respective licenses when using those components.
+
+## License
+
+No license has yet been assigned to the original AggStab code. Until a license
+is added, please contact the authors for permission to reuse or redistribute it.
+
+## Citation
+
+Citation information will be added after the manuscript is publicly available.

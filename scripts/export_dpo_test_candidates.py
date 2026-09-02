@@ -19,6 +19,7 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
 import torch
 from transformers import EsmTokenizer
 
@@ -34,6 +35,18 @@ from src.mpnn.mpnn_wrapper import compute_log_probs, featurize_pdb, load_mpnn_mo
 from src.utils.seed import set_global_seed, unique_preserve_order
 
 
+def compute_log_probs_in_batches(model, feat, seqs, *, device: str, batch_size: int) -> torch.Tensor:
+    """Compute ProteinMPNN log-probabilities without batching all candidates at once."""
+    chunks: list[torch.Tensor] = []
+    for start in range(0, len(seqs), batch_size):
+        chunk_seqs = seqs[start : start + batch_size]
+        log_probs, _ = compute_log_probs(model, feat, chunk_seqs, device=device)
+        chunks.append(log_probs.detach().cpu())
+        if device.startswith("cuda"):
+            torch.cuda.empty_cache()
+    return torch.cat(chunks, dim=0)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdb_dir", type=str, required=True)
@@ -47,10 +60,12 @@ def main() -> None:
     parser.add_argument("--num_samples", type=int, default=16)
     parser.add_argument("--temperature", type=float, default=0.5)
     parser.add_argument("--proagg_batch_size", type=int, default=32)
+    parser.add_argument("--mpnn_logprob_batch_size", type=int, default=16)
     parser.add_argument("--data_csv", type=str, default="data/rocklin/rawdata/data.csv")
     parser.add_argument("--max_pdbs", type=int, default=-1)
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--resume", action="store_true", help="Append to output_csv and skip completed pdb_name values.")
     args = parser.parse_args()
 
     set_global_seed(args.seed)
@@ -84,6 +99,12 @@ def main() -> None:
         pdb_files = [pdb_files[i] for i in sorted(idx)]
 
     os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
+    completed_pdbs: set[str] = set()
+    output_exists = os.path.exists(args.output_csv) and os.path.getsize(args.output_csv) > 0
+    if args.resume and output_exists:
+        existing = pd.read_csv(args.output_csv, usecols=["pdb_name"])
+        completed_pdbs = set(existing["pdb_name"].astype(str).unique())
+        print(f"Resume enabled: skipping {len(completed_pdbs)} completed backbones", flush=True)
 
     fieldnames = [
         "pdb_name",
@@ -97,14 +118,20 @@ def main() -> None:
         "num_unique_for_backbone",
     ]
 
-    with open(args.output_csv, "w", newline="") as f:
+    mode = "a" if args.resume and output_exists else "w"
+    with open(args.output_csv, mode, newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
+        if mode == "w":
+            writer.writeheader()
 
         for pi, pdb_path in enumerate(pdb_files):
             pdb_file = os.path.basename(pdb_path)
             protein_name = pdb_file.replace("_ranked_0.pdb", "")
             print(f"[{pi+1}/{len(pdb_files)}] {protein_name}", flush=True)
+
+            if protein_name in completed_pdbs:
+                print("  already completed, skip", flush=True)
+                continue
 
             if protein_name not in struct_lookup:
                 print("  missing structural tokens, skip", flush=True)
@@ -145,7 +172,13 @@ def main() -> None:
             else:
                 stab_scores = None
                 wt_delta_g = None
-            mpnn_log_probs, _ = compute_log_probs(mpnn_model, feat, seqs, device=device)
+            mpnn_log_probs = compute_log_probs_in_batches(
+                mpnn_model,
+                feat,
+                seqs,
+                device=device,
+                batch_size=args.mpnn_logprob_batch_size,
+            )
 
             order = torch.argsort(proagg_scores, descending=True).tolist()
             for rank, idx in enumerate(order, start=1):

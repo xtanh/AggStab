@@ -23,11 +23,12 @@ PROJ_DIR = FILE_DIR[:FILE_DIR.index("src")]
 sys.path.insert(0, PROJ_DIR)
 
 from src.dpo.dpo_train import seq_to_indices
-from src.mpnn.mpnn_wrapper import MPNN_ALPHABET, featurize_pdb, load_mpnn_model
-
-MPNN_DIR = "/home/xy_th/ProteinMPNN"
-sys.path.insert(0, MPNN_DIR)
-from protein_mpnn_utils import _scores  # noqa: E402
+from src.mpnn.mpnn_wrapper import (
+    MPNN_ALPHABET,
+    featurize_pdb,
+    load_mpnn_model,
+    protein_mpnn_scores,
+)
 
 from src.utils.seed import set_global_seed
 
@@ -68,7 +69,7 @@ def compute_seq_nll(model, feat, S, device, randn=None):
         randn = torch.zeros(chain_M.shape, device=device)
 
     log_probs = model(X, S, mask, chain_M, residue_idx, chain_encoding_all, randn)
-    neg_scores = _scores(S, log_probs, mask * chain_M)
+    neg_scores = protein_mpnn_scores(S, log_probs, mask * chain_M)
     return neg_scores.squeeze()
 
 

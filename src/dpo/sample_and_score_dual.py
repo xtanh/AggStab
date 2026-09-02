@@ -140,6 +140,12 @@ def attach_candidate_metrics(pair_list, metrics_by_sequence, objective_name, pro
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pdb_dir", type=str, required=True)
+    parser.add_argument(
+        "--pdb_list_file",
+        type=str,
+        default=None,
+        help="Optional newline-delimited list of PDB filenames or full paths to use instead of scanning pdb_dir.",
+    )
     parser.add_argument("--agg_ckpt", type=str, required=True)
     parser.add_argument("--agg_config", type=str, required=True)
     parser.add_argument("--stab_ckpt", type=str, required=True)
@@ -186,7 +192,17 @@ def main():
     wt_delta_g_lookup = load_stability_lookup(args.stability_csv)
     print(f"  {len(wt_delta_g_lookup)} proteins with WT deltaG", flush=True)
 
-    pdb_files = sorted(glob.glob(os.path.join(args.pdb_dir, "*.pdb")))
+    if args.pdb_list_file:
+        with open(args.pdb_list_file) as handle:
+            entries = [line.strip() for line in handle if line.strip()]
+        pdb_files = []
+        for entry in entries:
+            pdb_path = entry if os.path.isabs(entry) else os.path.join(args.pdb_dir, entry)
+            if not os.path.exists(pdb_path):
+                raise FileNotFoundError(f"PDB listed in {args.pdb_list_file} not found: {pdb_path}")
+            pdb_files.append(pdb_path)
+    else:
+        pdb_files = sorted(glob.glob(os.path.join(args.pdb_dir, "*.pdb")))
     if args.max_pdbs > 0:
         np.random.seed(args.seed)
         selected = np.random.choice(len(pdb_files), min(args.max_pdbs, len(pdb_files)), replace=False)

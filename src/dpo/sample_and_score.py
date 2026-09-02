@@ -137,6 +137,8 @@ def main():
     parser.add_argument("--data_csv", type=str,
                         default="data/rocklin/rawdata/data.csv",
                         help="Path to raw data CSV (for structural token lookup)")
+    parser.add_argument("--pdb_list_file", type=str, default=None,
+                        help="Optional newline-delimited PDB file list, relative to --pdb_dir unless absolute")
     parser.add_argument("--max_pdbs", type=int, default=-1,
                         help="Max number of PDBs to process (-1 for all)")
     parser.add_argument("--seed", type=int, default=42,
@@ -169,7 +171,17 @@ def main():
     print(f"  {len(struct_lookup)} proteins in lookup")
 
     # --- Process each PDB ---
-    pdb_files = sorted(glob.glob(os.path.join(args.pdb_dir, "*.pdb")))
+    if args.pdb_list_file:
+        with open(args.pdb_list_file) as handle:
+            entries = [line.strip() for line in handle if line.strip()]
+        pdb_files = []
+        for entry in entries:
+            pdb_path = entry if os.path.isabs(entry) else os.path.join(args.pdb_dir, entry)
+            if not os.path.exists(pdb_path):
+                raise FileNotFoundError(f"PDB listed in {args.pdb_list_file} not found: {pdb_path}")
+            pdb_files.append(pdb_path)
+    else:
+        pdb_files = sorted(glob.glob(os.path.join(args.pdb_dir, "*.pdb")))
     if not pdb_files:
         print(f"No PDB files found in {args.pdb_dir}")
         return

@@ -1,9 +1,9 @@
 seed: 42
-data_dir: ./data/rocklin
+data_dir: ${oc.env:AGGSTAB_DATA_DIR,./data/rocklin}
 
 model:
   model_name: proagg_mlp_v36
-  saprot_path: /home/xy_th/SaProt/SaProt_650M_PDB
+  saprot_path: ${oc.env:SAPROT_MODEL_PATH}
   lora:
     enabled: true
     r: 4

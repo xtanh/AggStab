@@ -3,12 +3,20 @@
 import os
 import sys
 import copy
+from pathlib import Path
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-MPNN_DIR = "/home/xy_th/ProteinMPNN"
-sys.path.insert(0, MPNN_DIR)
+_DEFAULT_MPNN_DIR = Path(__file__).resolve().parents[3] / "ProteinMPNN"
+MPNN_DIR = Path(os.environ.get("PROTEINMPNN_DIR", _DEFAULT_MPNN_DIR)).expanduser().resolve()
+if not (MPNN_DIR / "protein_mpnn_utils.py").is_file():
+    raise ImportError(
+        "ProteinMPNN was not found. Clone the ProteinMPNN repository and set "
+        "PROTEINMPNN_DIR to its root directory."
+    )
+sys.path.insert(0, str(MPNN_DIR))
 
 from protein_mpnn_utils import (
     ProteinMPNN,
@@ -19,6 +27,7 @@ from protein_mpnn_utils import (
 )
 
 MPNN_ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
+protein_mpnn_scores = _scores
 
 
 def load_mpnn_model(
@@ -29,7 +38,10 @@ def load_mpnn_model(
 ):
     """Load a pretrained ProteinMPNN model."""
     if checkpoint_path is None:
-        checkpoint_path = os.path.join(MPNN_DIR, "vanilla_model_weights", "v_48_020.pt")
+        checkpoint_path = os.environ.get(
+            "PROTEINMPNN_CKPT",
+            str(MPNN_DIR / "vanilla_model_weights" / "v_48_020.pt"),
+        )
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     num_edges = checkpoint["num_edges"]

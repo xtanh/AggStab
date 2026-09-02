@@ -1,9 +1,6 @@
 #!/bin/bash
 
-set -e
-
-eval "$(conda shell.bash hook)"
-conda activate SaProt
+set -euo pipefail
 
 AGG_CKPT=${1:?"Usage: $0 <agg_ckpt> <stab_ckpt> [device]"}
 STAB_CKPT=${2:?"Usage: $0 <agg_ckpt> <stab_ckpt> [device]"}
@@ -76,7 +73,7 @@ echo "  output_root=$OUTPUT_ROOT"
 echo "============================================================"
 
 ROUND_LIST_DIR="${OUTPUT_ROOT}/round_train_lists"
-if [ "$ROUND_TRAIN_SPLIT_MODE" = "halves" ]; then
+if [ "$ROUND_TRAIN_SPLIT_MODE" = "halves" ] || [ "$ROUND_TRAIN_SPLIT_MODE" = "thirds" ] || [ "$ROUND_TRAIN_SPLIT_MODE" = "quarters" ]; then
   mkdir -p "$ROUND_LIST_DIR"
   python - <<PY
 import glob, os, random
@@ -84,12 +81,29 @@ pdb_dir = "${PDB_TRAIN}"
 output_dir = "${ROUND_LIST_DIR}"
 seed = int("${ROUND_TRAIN_SPLIT_SEED}")
 rounds = int("${ROUNDS}")
-if rounds != 2:
-    raise SystemExit("ROUND_TRAIN_SPLIT_MODE=halves requires ROUNDS=2")
 files = sorted(glob.glob(os.path.join(pdb_dir, "*.pdb")))
 random.Random(seed).shuffle(files)
-mid = len(files) // 2
-splits = [files[:mid], files[mid:]]
+mode = "${ROUND_TRAIN_SPLIT_MODE}"
+expected_rounds = {
+    "halves": 2,
+    "thirds": 3,
+    "quarters": 4,
+}
+if mode not in expected_rounds:
+    raise SystemExit(f"Unsupported ROUND_TRAIN_SPLIT_MODE: {mode}")
+num_splits = expected_rounds[mode]
+if rounds != num_splits:
+    raise SystemExit(f"ROUND_TRAIN_SPLIT_MODE={mode} requires ROUNDS={num_splits}")
+
+base, rem = divmod(len(files), num_splits)
+splits = []
+start = 0
+for i in range(num_splits):
+    size = base + (1 if i < rem else 0)
+    end = start + size
+    splits.append(files[start:end])
+    start = end
+
 for i, split in enumerate(splits):
     out = os.path.join(output_dir, f"round{i}.txt")
     with open(out, "w") as f:
@@ -136,7 +150,7 @@ for (( ROUND=0; ROUND<ROUNDS; ROUND++ )); do
   fi
 
   ROUND_TRAIN_ARGS=()
-  if [ "$ROUND_TRAIN_SPLIT_MODE" = "halves" ]; then
+  if [ "$ROUND_TRAIN_SPLIT_MODE" = "halves" ] || [ "$ROUND_TRAIN_SPLIT_MODE" = "thirds" ] || [ "$ROUND_TRAIN_SPLIT_MODE" = "quarters" ]; then
     ROUND_LIST_FILE="${ROUND_LIST_DIR}/round${ROUND}.txt"
     ROUND_TRAIN_ARGS+=(--pdb_list_file "$ROUND_LIST_FILE")
     echo "  using round-specific train list: $ROUND_LIST_FILE"
