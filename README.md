@@ -35,6 +35,130 @@ The main paper setting uses two rounds, disjoint training halves, one epoch per
 round, 16 samples per backbone, sampling temperature 0.5, DPO beta 0.1, and an
 SFT loss weight of 1.0.
 
+## Quick start: pretrained inference
+
+Most users do not need to retrain AggStab. The three primary inference tasks
+are backbone-conditioned aggregation-resistance prediction, folding-stability
+prediction, and sequence design. All commands below accept a single-chain PDB
+backbone and use Foldseek to derive its 3Di structural context.
+
+### Download the pretrained models
+
+Download the versioned model archive and place the files as follows:
+
+```text
+checkpoints/
+  aggregation_reward.ckpt
+  stability_reward.ckpt
+  aggstab_policy.pt
+```
+
+The public download URL and SHA256 manifest will be added here with the first
+model release. Model archives are kept outside the Git repository because the
+two full Lightning reward checkpoints are approximately 2.65 GB each. The
+small `aggstab_policy.pt` file contains the aligned ProteinMPNN policy. Exact
+file sizes and checksums are recorded in
+[`models/model_manifest.yaml`](models/model_manifest.yaml).
+
+Set the external model and executable locations:
+
+```bash
+export SAPROT_MODEL_PATH=/absolute/path/to/SaProt_650M_PDB
+export PROTEINMPNN_DIR=/absolute/path/to/ProteinMPNN
+export PROTEINMPNN_CKPT="$PROTEINMPNN_DIR/vanilla_model_weights/v_48_020.pt"
+export FOLDSEEK_BIN=/absolute/path/to/foldseek
+```
+
+The query sequence must have the same length as the selected PDB chain. The
+current public interface supports single-chain fixed-backbone inference.
+For an AlphaFold PDB whose B-factor field contains pLDDT, add
+`--mask_low_confidence` to reproduce the low-confidence 3Di masking used during
+data preparation. Do not use this option for experimental B-factors.
+
+### Predict aggregation resistance
+
+Score the sequence encoded by the input PDB:
+
+```bash
+python scripts/predict_properties.py \
+  --pdb examples/target.pdb \
+  --chain A \
+  --aggregation_ckpt checkpoints/aggregation_reward.ckpt \
+  --output_csv outputs/target_aggregation.csv \
+  --device cuda:0
+```
+
+Score a proposed sequence on the same fixed backbone by adding
+`--sequence SEQUENCE`. For multiple sequences, use `--fasta candidates.fasta`.
+The output column `aggregation_resistance_score` is on the learned experimental
+phenotype scale; larger values indicate stronger predicted resistance to
+stress-induced aggregation. `aggregation_gain_vs_wt` subtracts the score of
+the PDB-encoded sequence.
+
+### Predict folding stability (Delta G)
+
+```bash
+python scripts/predict_properties.py \
+  --pdb examples/target.pdb \
+  --chain A \
+  --fasta candidates.fasta \
+  --stability_ckpt checkpoints/stability_reward.ckpt \
+  --output_csv outputs/target_stability.csv \
+  --device cuda:0
+```
+
+The output column `predicted_deltaG` is the model-predicted unfolding free
+energy on the training-assay scale; larger values indicate stronger predicted
+folding stability. `stability_gain_vs_wt` is the design prediction minus the
+prediction for the PDB-encoded sequence. These values are computational
+predictions and should not be interpreted as direct experimental measurements.
+
+Both properties can be evaluated in one run by supplying both checkpoints:
+
+```bash
+python scripts/predict_properties.py \
+  --pdb examples/target.pdb \
+  --fasta candidates.fasta \
+  --aggregation_ckpt checkpoints/aggregation_reward.ckpt \
+  --stability_ckpt checkpoints/stability_reward.ckpt \
+  --output_csv outputs/target_properties.csv \
+  --device cuda:0
+```
+
+### Design aggregation-resistant and stable sequences
+
+Generate 48 sequences from the released AggStab policy, score them with both
+reward models, apply the staged quality filters used in the paper, and retain
+the top three:
+
+```bash
+python scripts/design_with_aggstab.py \
+  --pdb examples/target.pdb \
+  --chain A \
+  --policy_ckpt checkpoints/aggstab_policy.pt \
+  --aggregation_ckpt checkpoints/aggregation_reward.ckpt \
+  --stability_ckpt checkpoints/stability_reward.ckpt \
+  --num_samples 48 \
+  --temperature 0.5 \
+  --top_k 3 \
+  --output_dir outputs/target_design \
+  --device cuda:0
+```
+
+This creates:
+
+```text
+outputs/target_design/
+  all_candidates.csv
+  top3_candidates.csv
+  top3_candidates.fasta
+  run_config.json
+```
+
+For a previously unseen backbone, both WT-relative columns use predictions for
+the PDB-encoded sequence as their reference. Structural prediction and
+experimental validation remain recommended before synthesis.
+
 ## Repository layout
 
 ```text
@@ -98,6 +222,9 @@ Chai-1 structure prediction is best installed in a separate environment because
 its dependency stack differs from the reward-training environment. Follow the
 official [chai-lab installation](https://github.com/chaidiscovery/chai-lab).
 
+Foldseek must also be installed for arbitrary-backbone inference. Set
+`FOLDSEEK_BIN` if its executable is not available on `PATH`.
+
 ## Data and checkpoints
 
 Large datasets, structures, model weights, generated candidates, and molecular
@@ -146,7 +273,7 @@ Set a non-default processed-data root if needed:
 export AGGSTAB_DATA_DIR=/absolute/path/to/rocklin
 ```
 
-## Train the reward models
+## Optional: train the reward models
 
 Train the aggregation-resistance and stability predictors independently:
 
@@ -161,7 +288,7 @@ python src/ln/lightning_train.py \
 Both commands write PyTorch Lightning runs beneath `results/lightning_logs/`.
 The paper models use SaProt-650M with LoRA on query, key, and value projections.
 
-## Run AggStab
+## Optional: reproduce AggStab training
 
 The following command reproduces the main two-round training protocol after the
 processed data and reward checkpoints have been placed as above:
