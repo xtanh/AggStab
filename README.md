@@ -72,8 +72,7 @@ gdown --folder \
 ```
 
 The reward checkpoints are kept outside Git because each is approximately
-2.65 GB. Exact file sizes, roles, and SHA256 checksums are listed in
-[`models/model_manifest.yaml`](models/model_manifest.yaml).
+2.65 GB.
 
 ## Predict aggregation resistance
 
@@ -167,7 +166,6 @@ flag for experimental B-factors.
 ```text
 assets/                         Overview figure
 configs/                        Released reward-model configurations
-models/model_manifest.yaml      Checkpoint metadata and checksums
 scripts/predict_properties.py   Property prediction CLI
 scripts/design_with_aggstab.py  Sequence-design CLI
 src/inference.py                Backbone extraction and reward inference
