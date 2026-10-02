@@ -1,4 +1,4 @@
-# AggStab: Joint preference alignment for aggregation-aware inverse folding
+# AggStab: Preference-aligned inverse folding for joint optimization of aggregation resistance and folding stability
 
 ![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.5-EE4C2C?logo=pytorch&logoColor=white)
@@ -7,18 +7,33 @@
 
 AggStab is a fixed-backbone protein inverse-folding framework that aligns
 ProteinMPNN to two experimentally grounded objectives: resistance to
-stress-induced aggregation and folding stability. Candidate sequences are
-scored by frozen, backbone-conditioned SaProt reward models, converted into
-joint winner-loser preferences, and used to update the generator with direct
-preference optimization (DPO) and winner-sequence regularization.
+stress-induced aggregation and folding stability. Frozen, backbone-conditioned
+SaProt reward models score sampled sequences, joint winner-loser preferences
+align the generator through direct preference optimization (DPO), and the
+updated policy resamples candidates in a semi-online training loop.
 
-The repository contains the training and evaluation code accompanying:
+![AggStab overview](assets/aggstab_overview.png)
 
-> **Joint preference alignment of aggregation resistance and folding stability
-> in inverse protein folding**
+The public release is inference-first. Its primary workflows are:
 
-The manuscript is in preparation. Citation information and public download
-links for processed data and trained checkpoints will be added when available.
+- backbone-conditioned aggregation-resistance prediction;
+- backbone-conditioned folding-stability prediction on the learned
+  $\Delta G_{\mathrm{unfolding}}$ scale;
+- generation and joint reranking of aggregation-resistant, stable sequences.
+
+Training and evaluation pipelines are retained for reproducibility, but most
+users only need the pretrained checkpoints and the commands in
+[Quick start](#quick-start-pretrained-inference).
+
+This repository accompanies the manuscript:
+
+> **AggStab: Preference-aligned inverse folding for joint optimization of
+> aggregation resistance and folding stability**
+
+The manuscript is being prepared for submission. Citation information will be
+added when it becomes publicly available. Trained checkpoints will be provided
+as a versioned external release because the full reward-model files are too
+large for the Git repository.
 
 ## Method overview
 
