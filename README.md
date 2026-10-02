@@ -59,9 +59,20 @@ checkpoints/
   aggstab_policy.pt
 ```
 
-The download URL will be added with the first model release. The reward
-checkpoints are kept outside Git because each is approximately 2.65 GB. Exact
-file sizes, roles, and SHA256 checksums are listed in
+**[Download AggStab v1.0.0 pretrained models from Google Drive](https://drive.google.com/drive/folders/1GWx6yQpw3r3cLA0EUXrK5cvZ5A1CoenB)**
+
+The Google Drive folder contains the three files shown above. Alternatively,
+download the complete folder with `gdown`:
+
+```bash
+python -m pip install gdown
+gdown --folder \
+  'https://drive.google.com/drive/folders/1GWx6yQpw3r3cLA0EUXrK5cvZ5A1CoenB' \
+  -O checkpoints
+```
+
+The reward checkpoints are kept outside Git because each is approximately
+2.65 GB. Exact file sizes, roles, and SHA256 checksums are listed in
 [`models/model_manifest.yaml`](models/model_manifest.yaml).
 
 ## Predict aggregation resistance

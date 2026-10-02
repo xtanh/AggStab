@@ -1,5 +1,6 @@
 release: v1.0.0
 format: pytorch
+download: https://drive.google.com/drive/folders/1GWx6yQpw3r3cLA0EUXrK5cvZ5A1CoenB
 files:
   aggregation_reward.ckpt:
     role: Backbone-conditioned aggregation-resistance reward model
