@@ -1,0 +1,19 @@
+name: aggstab
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch=2.5.1
+  - pytorch-cuda=12.4
+  - numpy=2.2
+  - pandas=2.2
+  - biopython=1.84
+  - pip:
+      - pytorch-lightning==2.4.0
+      - torchmetrics>=1.4,<2
+      - transformers==4.28.0
+      - peft==0.6.2
+      - omegaconf==2.3.0

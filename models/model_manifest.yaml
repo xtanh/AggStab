@@ -1,0 +1,17 @@
+release: v1.0.0
+format: pytorch
+files:
+  aggregation_reward.ckpt:
+    role: Backbone-conditioned aggregation-resistance reward model
+    size_bytes: 2645244723
+    sha256: 756a746031e54544dd859f7e0cfc9b165ac2b185465f5d7468105b9952fbd450
+    config: configs/proagg_final_candidate.yaml
+  stability_reward.ckpt:
+    role: Backbone-conditioned folding-stability reward model
+    size_bytes: 2645240889
+    sha256: 1689fcc4fb8da40efba7c59d834332c803cdbd40f63cf62402135ddb8a64ff26
+    config: configs/proagg_deltaG_only.yaml
+  aggstab_policy.pt:
+    role: Final round-2 AggStab ProteinMPNN policy
+    size_bytes: 6686038
+    sha256: 022dc39806ebe92167db5865ac6a74621f1b1a3fcf0bd6c969ef76854178533f

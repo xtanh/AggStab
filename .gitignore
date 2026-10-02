@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Environments and editors
+.env
+.venv/
+.vscode/
+.idea/
+.DS_Store
+
+# Local models and external dependencies
+checkpoints/
+third_party/
+*.ckpt
+*.pt
+
+# User inputs and generated outputs
+data/
+outputs/
+results/
+*.log
+nohup.out
+
+# Large structural and simulation artifacts
+*.dcd
+*.xtc
+*.trr
+*_frames.pdb
